@@ -5,10 +5,75 @@
 const PANDUAN_SHEET_NAME = 'Panduan';
 
 function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('Stock Manager')
+  const ui = SpreadsheetApp.getUi();
+
+  const sortMenu = ui.createMenu('Urutkan Terbaru')
+    .addItem('BARANG MASUK', 'sortBarangMasuk')
+    .addItem('BARANG RETUR', 'sortBarangRetur')
+    .addItem('BARANG KELUAR', 'sortBarangKeluar');
+
+  ui.createMenu('Stock Manager')
     .addItem('Setup', 'runSetup')
+    .addSeparator()
+    .addItem('Input Manual', 'testAppendRow')
+    .addItem('Input Batch (Invoice)', 'testBatchInsert')
+    .addSubMenu(sortMenu)
     .addToUi();
+}
+
+/** Menu handler: appends one dummy row to BARANG MASUK via appendRow(). */
+function testAppendRow() {
+  const config = getConfig();
+  const row = {};
+  row[config.col_masuk_tgl] = new Date();
+  row[config.col_masuk_kode] = 'TEST01';
+  row[config.col_masuk_nama] = 'Contoh Barang Masuk';
+  row[config.col_masuk_jumlah] = 10;
+  row[config.col_masuk_keterangan] = 'Dummy test dari menu Input Manual';
+
+  const rowIndex = appendRow(config.sheet_barang_masuk, row);
+  SpreadsheetApp.getUi().alert(
+    'Baris baru ditambahkan ke "' + config.sheet_barang_masuk + '" di baris ' + rowIndex + '.'
+  );
+}
+
+/** Menu handler: batch-inserts 3 dummy rows into BARANG KELUAR sharing one INVOICE. */
+function testBatchInsert() {
+  const config = getConfig();
+  const invoiceNumber = 'INV-TEST-' + new Date().getTime();
+  const items = [
+    { kode: 'TEST01', nama: 'Contoh Barang 1', jumlah: 5 },
+    { kode: 'TEST02', nama: 'Contoh Barang 2', jumlah: 3 },
+    { kode: 'TEST03', nama: 'Contoh Barang 3', jumlah: 7 }
+  ];
+
+  const rows = items.map(function (item) {
+    const row = {};
+    row[config.col_keluar_tgl] = new Date();
+    row[config.col_keluar_invoice] = invoiceNumber;
+    row[config.col_keluar_kode] = item.kode;
+    row[config.col_keluar_nama] = item.nama;
+    row[config.col_keluar_jumlah] = item.jumlah;
+    return row;
+  });
+
+  const rowIndices = batchInsert(config.sheet_barang_keluar, rows);
+  SpreadsheetApp.getUi().alert(
+    rowIndices.length + ' baris ditambahkan ke "' + config.sheet_barang_keluar +
+    '" (invoice ' + invoiceNumber + ') di baris ' + rowIndices.join(', ') + '.'
+  );
+}
+
+function sortBarangMasuk() {
+  sortByDate(getConfig().sheet_barang_masuk);
+}
+
+function sortBarangRetur() {
+  sortByDate(getConfig().sheet_barang_retur);
+}
+
+function sortBarangKeluar() {
+  sortByDate(getConfig().sheet_barang_keluar);
 }
 
 /**

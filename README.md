@@ -24,8 +24,11 @@ adapting to a different layout means editing Config values, not the script.
   sheet), `getColumnIndex()` (header-based column lookup), `clearConfigCache()`,
   `ensureConfigSheet()`, and an `onEdit()` simple trigger that invalidates the
   cache whenever the Config sheet changes.
-- `src/Main.gs` — `onOpen()` (the **Stock Manager** menu) and `runSetup()`,
-  which creates the `Config` and `Panduan` sheets with defaults on first run.
+- `src/Main.gs` — `onOpen()` (the **Stock Manager** menu), `runSetup()`
+  (creates `Config` and `Panduan` with defaults on first run), and the menu
+  handlers that call into `Transaksi.gs`.
+- `src/Transaksi.gs` — generic input logic shared by all three transaction
+  sheets: `appendRow()`, `batchInsert()`, `sortByDate()`, `applyBorders()`.
 
 ## Config sheet
 
@@ -78,7 +81,53 @@ clasp open
    run `getConfig()` again, and confirm the new value is returned (the
    `onEdit` trigger clears the cache automatically on every Config edit).
 
+## Fase 1 — Input logic (Append, Sort, Border, Batch per Invoice)
+
+`Transaksi.gs` adds generic functions that work identically on all three
+transaction sheets (`BARANG MASUK`, `BARANG RETUR`, `BARANG KELUAR`) — none
+of them are hardcoded to a specific sheet:
+
+- `appendRow(sheetName, rowDataObject)` — writes one row to the bottom of
+  the sheet (`getLastRow() + 1`), matching object keys to columns by header
+  text via `getColumnIndex()`. Returns the row index written.
+- `batchInsert(sheetName, arrayOfRowDataObjects)` — writes several rows in
+  one `setValues()` call (no per-row `appendRow` loop). For `BARANG KELUAR`,
+  it verifies every row's `INVOICE` value matches before writing.
+- `sortByDate(sheetName)` — sorts all data rows (header excluded) by the
+  sheet's configured date column, newest first, then renumbers a column
+  literally headed `NO` if one exists. Data rows must be free of merged
+  cells for `Range.sort()` to work.
+- `applyBorders(sheetName)` — applies a thin grid border to the whole used
+  range; idempotent, safe to call repeatedly (called automatically after
+  every append/batch/sort above).
+
+These sheets (with headers matching whatever the `Config` sheet's Value
+column says) must already exist in the spreadsheet — this template doesn't
+create `BARANG MASUK` / `BARANG RETUR` / `BARANG KELUAR` themselves, only
+`Config` and `Panduan`.
+
+New menu items under **Stock Manager**:
+
+- **Input Manual** — `testAppendRow()`, a dummy row appended to
+  `BARANG MASUK`.
+- **Input Batch (Invoice)** — `testBatchInsert()`, 3 dummy rows appended to
+  `BARANG KELUAR` sharing one `INVOICE` number.
+- **Urutkan Terbaru** submenu — `sortByDate()` for `BARANG MASUK`,
+  `BARANG RETUR`, or `BARANG KELUAR`.
+
+### Testing Fase 1
+
+1. **Input Manual** → new row appears at the very bottom of `BARANG MASUK`,
+   with a border.
+2. **Input Batch (Invoice)** → 3 rows land in `BARANG KELUAR` at once, same
+   `INVOICE` number, borders intact.
+3. **Urutkan Terbaru > BARANG MASUK** → rows sorted newest-date-first, `NO`
+   renumbered top to bottom, borders intact.
+4. Repeat 1–3 for `BARANG RETUR` and `BARANG KELUAR` — behavior must match
+   across all three sheets.
+
+Delete/edit features are intentionally out of scope for this phase (Fase 2).
+
 ## Next phase
 
-Stock in/out input logic, recap calculations, and low-stock status are not
-implemented yet — this phase is the Config foundation only.
+Fase 2: CRUD + auto-sync to `REKAP BARANG`.
