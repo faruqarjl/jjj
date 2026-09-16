@@ -45,6 +45,12 @@ function appendRow(sheetName, rowDataObject) {
  * out past the real last column.
  */
 function getTableInfo_(sheetName) {
+  Logger.log(
+    'getTableInfo_() received sheetName=%s (typeof %s, length %s)',
+    JSON.stringify(sheetName), typeof sheetName,
+    sheetName === null || sheetName === undefined ? 'n/a' : String(sheetName).length
+  );
+
   const sheet = getSheetOrThrow_(sheetName);
   const headerRow = getHeaderRow(sheetName);
   const lastColumn = sheet.getLastColumn();

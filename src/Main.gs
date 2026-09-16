@@ -37,6 +37,8 @@ function clearConfigCacheAndNotify() {
 /** Menu handler: appends one dummy row to BARANG MASUK via appendRow(). */
 function testAppendRow() {
   const sheetName = getConfigValue('sheet_barang_masuk');
+  Logger.log('testAppendRow(): sheet_barang_masuk resolved to %s (typeof %s)',
+    JSON.stringify(sheetName), typeof sheetName);
   const row = {};
   row[getConfigValue('col_masuk_tgl')] = new Date();
   row[getConfigValue('col_masuk_kode')] = 'TEST01';
