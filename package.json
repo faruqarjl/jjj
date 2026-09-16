@@ -1,0 +1,15 @@
+{
+  "name": "stock-manager-template",
+  "version": "1.0.0",
+  "description": "Google Apps Script Stock Manager template (Google Sheets + clasp)",
+  "private": true,
+  "scripts": {
+    "login": "clasp login",
+    "create": "clasp create --type sheets --title \"Stock Manager Template\" --rootDir src",
+    "push": "clasp push",
+    "open": "clasp open"
+  },
+  "devDependencies": {
+    "@google/clasp": "^2.4.2"
+  }
+}
