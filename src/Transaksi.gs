@@ -188,8 +188,17 @@ function applyBorders(sheetName) {
 }
 
 function getSheetOrThrow_(sheetName) {
+  if (!sheetName) {
+    Logger.log('getSheetOrThrow_(): sheetName is falsy (%s) — likely an undefined Config value.', sheetName);
+    throw new Error(
+      'sheetName kosong/undefined. Ini biasanya berarti getConfig() tidak menemukan key yang ' +
+      'diharapkan (misal sheet_barang_masuk) — cek isi sheet Config.'
+    );
+  }
+
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) {
+    Logger.log('getSheetOrThrow_("%s"): sheet not found in this spreadsheet.', sheetName);
     throw new Error('Sheet "' + sheetName + '" tidak ditemukan.');
   }
   return sheet;

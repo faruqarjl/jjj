@@ -40,11 +40,16 @@ const DEFAULT_CONFIG_ENTRIES = [
  * { sheet_barang_masuk: "BARANG MASUK", col_masuk_tgl: "TGL", ... }.
  * Cached in the script cache so repeated calls don't re-read the sheet;
  * the cache is auto-cleared by onEdit() whenever Config changes.
+ *
+ * Row 1 is only skipped if column A literally reads "Key" (the header
+ * ensureConfigSheet() writes) — a Config sheet filled in manually starting
+ * at row 1, with no header row, is read correctly too.
  */
 function getConfig() {
   const cache = CacheService.getScriptCache();
   const cached = cache.get(CONFIG_CACHE_KEY);
   if (cached) {
+    Logger.log('getConfig(): cache hit, %s key(s)', Object.keys(JSON.parse(cached)).length);
     return JSON.parse(cached);
   }
 
@@ -57,17 +62,36 @@ function getConfig() {
 
   const lastRow = sheet.getLastRow();
   const config = {};
-  if (lastRow >= 2) {
-    const rows = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  if (lastRow >= 1) {
+    const rows = sheet.getRange(1, 1, lastRow, 2).getValues();
     rows.forEach(function (row) {
       const key = String(row[0]).trim();
-      if (key === '') return;
+      if (key === '' || key.toLowerCase() === 'key') return;
       config[key] = row[1];
     });
   }
 
+  Logger.log('getConfig(): read from sheet, keys = %s', Object.keys(config).join(', '));
   cache.put(CONFIG_CACHE_KEY, JSON.stringify(config), CONFIG_CACHE_TTL_SECONDS);
   return config;
+}
+
+/**
+ * Returns a single Config value by key, or throws a clear error naming the
+ * missing key instead of letting `undefined` propagate into a sheet lookup
+ * (which used to surface downstream as a confusing "Sheet undefined" error).
+ */
+function getConfigValue(key) {
+  const config = getConfig();
+  if (!Object.prototype.hasOwnProperty.call(config, key) || config[key] === '') {
+    Logger.log('getConfigValue("%s"): NOT FOUND. Known keys: %s', key, Object.keys(config).join(', '));
+    throw new Error(
+      'Config key "' + key + '" tidak ditemukan atau kosong di sheet Config. ' +
+      'Cek kolom A (Key) dan kolom B (Value) untuk baris ini.'
+    );
+  }
+  Logger.log('getConfigValue("%s") = "%s"', key, config[key]);
+  return config[key];
 }
 
 /** Clears the cached config so the next getConfig() call re-reads the sheet. */
