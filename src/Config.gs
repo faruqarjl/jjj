@@ -9,7 +9,8 @@
  */
 
 const CONFIG_SHEET_NAME = 'Config';
-const CONFIG_CACHE_KEY = 'app_config_v1';
+// Bumped to v2 so any poisoned v1 entry cached by an earlier build is ignored.
+const CONFIG_CACHE_KEY = 'app_config_v2';
 const CONFIG_CACHE_TTL_SECONDS = 21600; // 6 hours — CacheService's max
 
 const DEFAULT_CONFIG_ENTRIES = [
@@ -48,32 +49,135 @@ const DEFAULT_CONFIG_ENTRIES = [
 function getConfig() {
   const cache = CacheService.getScriptCache();
   const cached = cache.get(CONFIG_CACHE_KEY);
+
+  // An empty object serializes to "{}", which is truthy — so never trust a
+  // cached entry that parsed to zero keys, or a stale empty entry would be
+  // served for the full TTL without the sheet ever being re-read.
   if (cached) {
-    Logger.log('getConfig(): cache hit, %s key(s)', Object.keys(JSON.parse(cached)).length);
-    return JSON.parse(cached);
+    const parsed = JSON.parse(cached);
+    if (Object.keys(parsed).length > 0) {
+      Logger.log('getConfig(): cache hit, %s key(s)', Object.keys(parsed).length);
+      return parsed;
+    }
+    Logger.log('getConfig(): cached entry was empty — discarding and re-reading the sheet.');
+    cache.remove(CONFIG_CACHE_KEY);
   }
 
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG_SHEET_NAME);
+  const sheet = findConfigSheet_();
   if (!sheet) {
     throw new Error(
-      'Sheet "' + CONFIG_SHEET_NAME + '" belum ada. Jalankan menu Stock Manager > Setup dulu.'
+      'Sheet "' + CONFIG_SHEET_NAME + '" tidak ketemu. Nama sheet yang ada sekarang: ' +
+      listSheetNames_().join(' | ') + '. Jalankan Stock Manager > Setup, atau rename sheet config Anda.'
     );
   }
 
   const lastRow = sheet.getLastRow();
+  Logger.log('getConfig(): reading sheet "%s", lastRow = %s', sheet.getName(), lastRow);
+
   const config = {};
   if (lastRow >= 1) {
     const rows = sheet.getRange(1, 1, lastRow, 2).getValues();
-    rows.forEach(function (row) {
-      const key = String(row[0]).trim();
+    rows.forEach(function (row, i) {
+      const key = normalizeText_(row[0]);
       if (key === '' || key.toLowerCase() === 'key') return;
-      config[key] = row[1];
+      const value = typeof row[1] === 'string' ? normalizeText_(row[1]) : row[1];
+      if (value === '' || value === null) {
+        Logger.log('getConfig(): row %s key "%s" has an EMPTY value in column B.', i + 1, key);
+      }
+      config[key] = value;
     });
   }
 
-  Logger.log('getConfig(): read from sheet, keys = %s', Object.keys(config).join(', '));
-  cache.put(CONFIG_CACHE_KEY, JSON.stringify(config), CONFIG_CACHE_TTL_SECONDS);
+  const keyCount = Object.keys(config).length;
+  Logger.log('getConfig(): parsed %s key(s) = %s', keyCount, Object.keys(config).join(', '));
+
+  // Don't cache an empty result — that's the poisoning case above.
+  if (keyCount > 0) {
+    cache.put(CONFIG_CACHE_KEY, JSON.stringify(config), CONFIG_CACHE_TTL_SECONDS);
+  }
   return config;
+}
+
+/**
+ * Finds the Config sheet tolerantly: exact name first, then ignoring case
+ * and stray/non-breaking whitespace, so "config", "CONFIG" or "Config "
+ * (a trailing space is invisible in the sheet tab) still resolve.
+ */
+function findConfigSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const exact = ss.getSheetByName(CONFIG_SHEET_NAME);
+  if (exact) return exact;
+
+  const wanted = CONFIG_SHEET_NAME.toLowerCase();
+  const match = ss.getSheets().filter(function (sheet) {
+    return normalizeText_(sheet.getName()).toLowerCase() === wanted;
+  })[0];
+
+  if (match) {
+    Logger.log(
+      'findConfigSheet_(): exact "%s" not found, matched "%s" loosely instead.',
+      CONFIG_SHEET_NAME, match.getName()
+    );
+  }
+  return match || null;
+}
+
+/** Trims and collapses non-breaking spaces, which are invisible but break equality. */
+function normalizeText_(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/ /g, ' ')
+    .trim();
+}
+
+function listSheetNames_() {
+  return SpreadsheetApp.getActiveSpreadsheet().getSheets().map(function (sheet) {
+    return JSON.stringify(sheet.getName());
+  });
+}
+
+/**
+ * Diagnostic dump: run this and read View > Execution log. Shows every sheet
+ * name (JSON-quoted so hidden whitespace is visible), the raw cache entry,
+ * every raw Config cell with its JavaScript type, and the parsed result.
+ */
+function debugConfig() {
+  const lines = [];
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  lines.push('Spreadsheet: ' + ss.getName());
+  lines.push('Sheets: ' + listSheetNames_().join(' | '));
+
+  const rawCache = CacheService.getScriptCache().get(CONFIG_CACHE_KEY);
+  lines.push('Raw cache [' + CONFIG_CACHE_KEY + ']: ' + (rawCache === null ? '(empty)' : rawCache));
+
+  const sheet = findConfigSheet_();
+  if (!sheet) {
+    lines.push('RESULT: no Config sheet matched, not even loosely.');
+  } else {
+    lines.push('Matched sheet: ' + JSON.stringify(sheet.getName()) +
+      ' | lastRow=' + sheet.getLastRow() + ' lastColumn=' + sheet.getLastColumn());
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 1) {
+      const rows = sheet.getRange(1, 1, lastRow, 2).getValues();
+      rows.forEach(function (row, i) {
+        lines.push(
+          '  row ' + (i + 1) + ': A=' + JSON.stringify(row[0]) + ' (' + typeof row[0] + ')' +
+          ' B=' + JSON.stringify(row[1]) + ' (' + typeof row[1] + ')'
+        );
+      });
+    }
+
+    clearConfigCache();
+    const config = getConfig();
+    lines.push('Parsed config (' + Object.keys(config).length + ' keys): ' + JSON.stringify(config));
+    lines.push('sheet_barang_masuk resolves to: ' + JSON.stringify(config.sheet_barang_masuk));
+  }
+
+  const report = lines.join('\n');
+  Logger.log(report);
+  SpreadsheetApp.getUi().alert('Debug Config', report, SpreadsheetApp.getUi().ButtonSet.OK);
+  return report;
 }
 
 /**
@@ -87,7 +191,8 @@ function getConfigValue(key) {
     Logger.log('getConfigValue("%s"): NOT FOUND. Known keys: %s', key, Object.keys(config).join(', '));
     throw new Error(
       'Config key "' + key + '" tidak ditemukan atau kosong di sheet Config. ' +
-      'Cek kolom A (Key) dan kolom B (Value) untuk baris ini.'
+      'Key yang terbaca sekarang: ' + (Object.keys(config).join(', ') || '(kosong)') + '. ' +
+      'Jalankan Stock Manager > Debug Config buat lihat detailnya.'
     );
   }
   Logger.log('getConfigValue("%s") = "%s"', key, config[key]);
@@ -116,13 +221,15 @@ function getColumnIndex(sheetName, columnHeaderName) {
   }
 
   const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  const wanted = normalizeText_(columnHeaderName).toLowerCase();
   const index = headers.findIndex(function (header) {
-    return String(header).trim() === String(columnHeaderName).trim();
+    return normalizeText_(header).toLowerCase() === wanted;
   });
 
   if (index === -1) {
     throw new Error(
-      'Kolom "' + columnHeaderName + '" tidak ditemukan di sheet "' + sheetName + '".'
+      'Kolom "' + columnHeaderName + '" tidak ditemukan di sheet "' + sheetName + '". ' +
+      'Header yang ada: ' + headers.map(function (h) { return JSON.stringify(h); }).join(' | ')
     );
   }
 
@@ -135,7 +242,7 @@ function getColumnIndex(sheetName, columnHeaderName) {
  */
 function ensureConfigSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (ss.getSheetByName(CONFIG_SHEET_NAME)) {
+  if (findConfigSheet_()) {
     return false;
   }
 
@@ -155,7 +262,7 @@ function ensureConfigSheet() {
  */
 function onEdit(e) {
   if (!e || !e.range) return;
-  if (e.range.getSheet().getName() === CONFIG_SHEET_NAME) {
+  if (normalizeText_(e.range.getSheet().getName()).toLowerCase() === CONFIG_SHEET_NAME.toLowerCase()) {
     clearConfigCache();
   }
 }

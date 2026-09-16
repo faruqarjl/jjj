@@ -18,22 +18,35 @@ function onOpen() {
     .addItem('Input Manual', 'testAppendRow')
     .addItem('Input Batch (Invoice)', 'testBatchInsert')
     .addSubMenu(sortMenu)
+    .addSeparator()
+    .addItem('Debug Config', 'debugConfig')
+    .addItem('Clear Cache Config', 'clearConfigCacheAndNotify')
     .addToUi();
+}
+
+/** Menu handler: flushes the cached config, then reports what a fresh read returns. */
+function clearConfigCacheAndNotify() {
+  clearConfigCache();
+  const config = getConfig();
+  SpreadsheetApp.getUi().alert(
+    'Cache dibersihkan. Hasil baca ulang sheet Config: ' + Object.keys(config).length +
+    ' key.\n\n' + Object.keys(config).join(', ')
+  );
 }
 
 /** Menu handler: appends one dummy row to BARANG MASUK via appendRow(). */
 function testAppendRow() {
-  const config = getConfig();
+  const sheetName = getConfigValue('sheet_barang_masuk');
   const row = {};
-  row[config.col_masuk_tgl] = new Date();
-  row[config.col_masuk_kode] = 'TEST01';
-  row[config.col_masuk_nama] = 'Contoh Barang Masuk';
-  row[config.col_masuk_jumlah] = 10;
-  row[config.col_masuk_keterangan] = 'Dummy test dari menu Input Manual';
+  row[getConfigValue('col_masuk_tgl')] = new Date();
+  row[getConfigValue('col_masuk_kode')] = 'TEST01';
+  row[getConfigValue('col_masuk_nama')] = 'Contoh Barang Masuk';
+  row[getConfigValue('col_masuk_jumlah')] = 10;
+  row[getConfigValue('col_masuk_keterangan')] = 'Dummy test dari menu Input Manual';
 
-  const rowIndex = appendRow(config.sheet_barang_masuk, row);
+  const rowIndex = appendRow(sheetName, row);
   SpreadsheetApp.getUi().alert(
-    'Baris baru ditambahkan ke "' + config.sheet_barang_masuk + '" di baris ' + rowIndex + '.'
+    'Baris baru ditambahkan ke "' + sheetName + '" di baris ' + rowIndex + '.'
   );
 }
 
