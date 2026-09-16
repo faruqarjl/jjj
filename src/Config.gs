@@ -33,7 +33,11 @@ const DEFAULT_CONFIG_ENTRIES = [
   ['col_rekap_stok_awal', 'STOK AWAL'],
   ['col_rekap_min_stok', 'MIN STOK'],
   ['col_rekap_sisa_stok', 'SISA STOK'],
-  ['col_rekap_status', 'STATUS']
+  ['col_rekap_status', 'STATUS'],
+  ['header_row_masuk', 5],
+  ['header_row_retur', 5],
+  ['header_row_keluar', 6],
+  ['header_row_rekap', 5]
 ];
 
 /**
@@ -205,22 +209,86 @@ function clearConfigCache() {
 }
 
 /**
- * Finds the 1-indexed column number in `sheetName` whose header row (row 1)
- * matches `columnHeaderName`. Always look columns up by header text instead
- * of a fixed number — column order can differ between spreadsheets.
+ * Maps a sheet to its Config key suffix by identity: "masuk", "retur",
+ * "keluar" or "rekap". Unlike the column prefix (where BARANG RETUR reuses
+ * the BARANG MASUK column names), each sheet keeps its own header row, so
+ * retur is distinct here. Returns null for a sheet Config doesn't know.
  */
-function getColumnIndex(sheetName, columnHeaderName) {
+function resolveSheetKeyPrefix_(sheetName, config) {
+  const name = normalizeText_(sheetName).toLowerCase();
+  const candidates = [
+    ['masuk', config.sheet_barang_masuk],
+    ['retur', config.sheet_barang_retur],
+    ['keluar', config.sheet_barang_keluar],
+    ['rekap', config.sheet_rekap_barang]
+  ];
+
+  const hit = candidates.filter(function (pair) {
+    return normalizeText_(pair[1]).toLowerCase() === name;
+  })[0];
+  return hit ? hit[0] : null;
+}
+
+/**
+ * The 1-indexed row holding column headers for `sheetName`, from the
+ * header_row_* Config keys (these sheets carry title/blank rows above the
+ * table, so the header is not row 1). Falls back to 1 when Config has no
+ * entry, which keeps plain single-header sheets working.
+ */
+function getHeaderRow(sheetName) {
+  let config;
+  try {
+    config = getConfig();
+  } catch (err) {
+    // No Config sheet at all — keep this usable standalone rather than
+    // making every column lookup depend on Config being present.
+    Logger.log('getHeaderRow("%s"): config unavailable (%s), defaulting to 1.', sheetName, err.message);
+    return 1;
+  }
+
+  const prefix = resolveSheetKeyPrefix_(sheetName, config);
+  if (!prefix) {
+    Logger.log('getHeaderRow("%s"): sheet not in Config, defaulting header row to 1.', sheetName);
+    return 1;
+  }
+
+  const raw = config['header_row_' + prefix];
+  const headerRow = Number(raw);
+  if (!raw || !isFinite(headerRow) || headerRow < 1 || headerRow % 1 !== 0) {
+    Logger.log(
+      'getHeaderRow("%s"): key "header_row_%s" missing/invalid (%s), defaulting to 1.',
+      sheetName, prefix, JSON.stringify(raw)
+    );
+    return 1;
+  }
+  return headerRow;
+}
+
+/**
+ * Finds the 1-indexed column number in `sheetName` whose header cell matches
+ * `columnHeaderName`. Always look columns up by header text instead of a
+ * fixed number — column order can differ between spreadsheets. `headerRow`
+ * is optional; when omitted it comes from Config via getHeaderRow().
+ */
+function getColumnIndex(sheetName, columnHeaderName, headerRow) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) {
     throw new Error('Sheet "' + sheetName + '" tidak ditemukan.');
   }
 
+  const row = headerRow || getHeaderRow(sheetName);
   const lastColumn = sheet.getLastColumn();
   if (lastColumn === 0) {
     throw new Error('Sheet "' + sheetName + '" tidak punya header.');
   }
+  if (row > sheet.getLastRow()) {
+    throw new Error(
+      'Header row ' + row + ' di luar isi sheet "' + sheetName + '" (baris terakhir: ' +
+      sheet.getLastRow() + '). Cek key header_row_* di sheet Config.'
+    );
+  }
 
-  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  const headers = sheet.getRange(row, 1, 1, lastColumn).getValues()[0];
   const wanted = normalizeText_(columnHeaderName).toLowerCase();
   const index = headers.findIndex(function (header) {
     return normalizeText_(header).toLowerCase() === wanted;
@@ -228,8 +296,9 @@ function getColumnIndex(sheetName, columnHeaderName) {
 
   if (index === -1) {
     throw new Error(
-      'Kolom "' + columnHeaderName + '" tidak ditemukan di sheet "' + sheetName + '". ' +
-      'Header yang ada: ' + headers.map(function (h) { return JSON.stringify(h); }).join(' | ')
+      'Kolom "' + columnHeaderName + '" tidak ditemukan di sheet "' + sheetName +
+      '" (header row ' + row + '). Header yang ada: ' +
+      headers.map(function (h) { return JSON.stringify(h); }).join(' | ')
     );
   }
 
@@ -253,6 +322,30 @@ function ensureConfigSheet() {
   sheet.autoResizeColumns(1, 2);
   clearConfigCache();
   return true;
+}
+
+/**
+ * Appends any DEFAULT_CONFIG_ENTRIES key missing from an existing Config
+ * sheet, so a sheet created by an earlier version picks up newly introduced
+ * keys. Purely additive — an existing key keeps whatever Value it has.
+ * Returns the list of keys that were added.
+ */
+function backfillConfigSheet() {
+  const sheet = findConfigSheet_();
+  if (!sheet) return [];
+
+  const existing = getConfig();
+  const missing = DEFAULT_CONFIG_ENTRIES.filter(function (entry) {
+    return !Object.prototype.hasOwnProperty.call(existing, entry[0]);
+  });
+  if (missing.length === 0) return [];
+
+  sheet.getRange(sheet.getLastRow() + 1, 1, missing.length, 2).setValues(missing);
+  clearConfigCache();
+
+  const addedKeys = missing.map(function (entry) { return entry[0]; });
+  Logger.log('backfillConfigSheet(): added %s', addedKeys.join(', '));
+  return addedKeys;
 }
 
 /**

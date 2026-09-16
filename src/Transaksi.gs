@@ -13,20 +13,65 @@
  * Returns the 1-indexed row that was written.
  */
 function appendRow(sheetName, rowDataObject) {
-  const sheet = getSheetOrThrow_(sheetName);
-  const lastColumn = sheet.getLastColumn();
-  const rowValues = new Array(lastColumn).fill('');
+  const table = getTableInfo_(sheetName);
+  const rowValues = new Array(table.width).fill('');
 
   Object.keys(rowDataObject).forEach(function (columnHeaderName) {
-    const columnIndex = getColumnIndex(sheetName, columnHeaderName);
+    const columnIndex = getColumnIndex(sheetName, columnHeaderName, table.headerRow);
     rowValues[columnIndex - 1] = rowDataObject[columnHeaderName];
   });
 
-  const targetRow = sheet.getLastRow() + 1;
-  sheet.getRange(targetRow, 1, 1, rowValues.length).setValues([rowValues]);
+  const targetRow = table.firstDataRow > table.sheet.getLastRow()
+    ? table.firstDataRow
+    : table.sheet.getLastRow() + 1;
+
+  Logger.log(
+    'appendRow("%s"): headerRow=%s width=%s -> writing row %s',
+    sheetName, table.headerRow, table.width, targetRow
+  );
+  table.sheet.getRange(targetRow, 1, 1, rowValues.length).setValues([rowValues]);
 
   applyBorders(sheetName);
   return targetRow;
+}
+
+/**
+ * Resolves a sheet's table geometry once: the configured header row, the
+ * first data row below it, and the table width.
+ *
+ * Width comes from the header row's own trailing non-empty cell, not
+ * getLastColumn() — a title row above the table may span more columns than
+ * the table itself, which would otherwise pad every written row with blanks
+ * out past the real last column.
+ */
+function getTableInfo_(sheetName) {
+  const sheet = getSheetOrThrow_(sheetName);
+  const headerRow = getHeaderRow(sheetName);
+  const lastColumn = sheet.getLastColumn();
+
+  if (lastColumn === 0) {
+    throw new Error('Sheet "' + sheetName + '" kosong, tidak ada header.');
+  }
+  if (headerRow > sheet.getLastRow()) {
+    throw new Error(
+      'Header row ' + headerRow + ' di luar isi sheet "' + sheetName +
+      '". Cek key header_row_* di sheet Config.'
+    );
+  }
+
+  const headers = sheet.getRange(headerRow, 1, 1, lastColumn).getValues()[0];
+  let width = headers.length;
+  while (width > 0 && String(headers[width - 1]).trim() === '') {
+    width--;
+  }
+  if (width === 0) {
+    throw new Error(
+      'Header row ' + headerRow + ' di sheet "' + sheetName + '" kosong. ' +
+      'Cek key header_row_* di sheet Config.'
+    );
+  }
+
+  return { sheet: sheet, headerRow: headerRow, firstDataRow: headerRow + 1, headers: headers, width: width };
 }
 
 /**
@@ -44,20 +89,27 @@ function batchInsert(sheetName, arrayOfRowDataObjects) {
     assertConsistentInvoice_(config, arrayOfRowDataObjects);
   }
 
-  const sheet = getSheetOrThrow_(sheetName);
-  const lastColumn = sheet.getLastColumn();
-  const columnIndexByHeader = buildColumnIndexMap_(sheetName, arrayOfRowDataObjects);
+  const table = getTableInfo_(sheetName);
+  const columnIndexByHeader = buildColumnIndexMap_(sheetName, arrayOfRowDataObjects, table.headerRow);
 
   const rows = arrayOfRowDataObjects.map(function (rowDataObject) {
-    const rowValues = new Array(lastColumn).fill('');
+    const rowValues = new Array(table.width).fill('');
     Object.keys(rowDataObject).forEach(function (columnHeaderName) {
       rowValues[columnIndexByHeader[columnHeaderName] - 1] = rowDataObject[columnHeaderName];
     });
     return rowValues;
   });
 
-  const startRow = sheet.getLastRow() + 1;
-  sheet.getRange(startRow, 1, rows.length, lastColumn).setValues(rows);
+  const sheet = table.sheet;
+  const startRow = table.firstDataRow > sheet.getLastRow()
+    ? table.firstDataRow
+    : sheet.getLastRow() + 1;
+
+  Logger.log(
+    'batchInsert("%s"): headerRow=%s -> writing %s row(s) from row %s',
+    sheetName, table.headerRow, rows.length, startRow
+  );
+  sheet.getRange(startRow, 1, rows.length, table.width).setValues(rows);
 
   applyBorders(sheetName);
 
@@ -69,7 +121,7 @@ function batchInsert(sheetName, arrayOfRowDataObjects) {
 }
 
 /** Resolves each unique header used across a batch to a column index once. */
-function buildColumnIndexMap_(sheetName, rowDataObjects) {
+function buildColumnIndexMap_(sheetName, rowDataObjects, headerRow) {
   const headerNames = new Set();
   rowDataObjects.forEach(function (rowDataObject) {
     Object.keys(rowDataObject).forEach(function (key) {
@@ -79,7 +131,7 @@ function buildColumnIndexMap_(sheetName, rowDataObjects) {
 
   const map = {};
   headerNames.forEach(function (headerName) {
-    map[headerName] = getColumnIndex(sheetName, headerName);
+    map[headerName] = getColumnIndex(sheetName, headerName, headerRow);
   });
   return map;
 }
@@ -120,16 +172,22 @@ function sortByDate(sheetName) {
   const config = getConfig();
   const prefix = resolveColumnPrefix_(sheetName, config);
   const dateColumnName = config['col_' + prefix + '_tgl'];
-  const dateColumnIndex = getColumnIndex(sheetName, dateColumnName);
 
-  const sheet = getSheetOrThrow_(sheetName);
-  const lastRow = sheet.getLastRow();
-  const lastColumn = sheet.getLastColumn();
+  const table = getTableInfo_(sheetName);
+  const dateColumnIndex = getColumnIndex(sheetName, dateColumnName, table.headerRow);
 
-  if (lastRow >= 2) {
-    const dataRange = sheet.getRange(2, 1, lastRow - 1, lastColumn);
+  const lastRow = table.sheet.getLastRow();
+  const dataRowCount = lastRow - table.headerRow;
+
+  Logger.log(
+    'sortByDate("%s"): headerRow=%s dataRows=%s sortColumn=%s',
+    sheetName, table.headerRow, dataRowCount, dateColumnIndex
+  );
+
+  if (dataRowCount > 0) {
+    const dataRange = table.sheet.getRange(table.firstDataRow, 1, dataRowCount, table.width);
     dataRange.sort({ column: dateColumnIndex, ascending: false });
-    renumberNoColumn_(sheet);
+    renumberNoColumn_(table);
   }
 
   applyBorders(sheetName);
@@ -153,38 +211,37 @@ function resolveColumnPrefix_(sheetName, config) {
  * per-sheet business field, so it's detected by header text directly
  * instead of adding config keys nothing else needs.
  */
-function renumberNoColumn_(sheet) {
-  const lastColumn = sheet.getLastColumn();
-  if (lastColumn === 0) return;
-
-  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
-  const noColumnIndex = headers.findIndex(function (header) {
+function renumberNoColumn_(table) {
+  const noColumnIndex = table.headers.findIndex(function (header) {
     return String(header).trim().toUpperCase() === 'NO';
   });
   if (noColumnIndex === -1) return;
 
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return;
+  const dataRowCount = table.sheet.getLastRow() - table.headerRow;
+  if (dataRowCount < 1) return;
 
   const numbers = [];
-  for (let i = 1; i <= lastRow - 1; i++) {
+  for (let i = 1; i <= dataRowCount; i++) {
     numbers.push([i]);
   }
-  sheet.getRange(2, noColumnIndex + 1, numbers.length, 1).setValues(numbers);
+  table.sheet.getRange(table.firstDataRow, noColumnIndex + 1, numbers.length, 1).setValues(numbers);
 }
 
 /**
- * Applies a thin grid border to the whole used range (header + data) of
- * `sheetName`. Idempotent — setBorder() sets an edge property per cell
- * rather than stacking lines, so calling this repeatedly is safe.
+ * Applies a thin grid border to the table of `sheetName` — the header row
+ * down to the last data row, across the table's width only. Title/blank
+ * rows above the header are deliberately left alone. Idempotent:
+ * setBorder() sets an edge property per cell rather than stacking lines.
  */
 function applyBorders(sheetName) {
-  const sheet = getSheetOrThrow_(sheetName);
-  const lastRow = sheet.getLastRow();
-  const lastColumn = sheet.getLastColumn();
-  if (lastRow === 0 || lastColumn === 0) return;
+  const table = getTableInfo_(sheetName);
+  const lastRow = table.sheet.getLastRow();
+  const rowCount = lastRow - table.headerRow + 1;
+  if (rowCount < 1) return;
 
-  sheet.getRange(1, 1, lastRow, lastColumn).setBorder(true, true, true, true, true, true);
+  table.sheet
+    .getRange(table.headerRow, 1, rowCount, table.width)
+    .setBorder(true, true, true, true, true, true);
 }
 
 function getSheetOrThrow_(sheetName) {

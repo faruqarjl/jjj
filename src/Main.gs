@@ -96,17 +96,24 @@ function sortBarangKeluar() {
 function runSetup() {
   const configCreated = ensureConfigSheet();
   const panduanCreated = ensurePanduanSheet_();
-
-  const ui = SpreadsheetApp.getUi();
-  if (!configCreated && !panduanCreated) {
-    ui.alert('Sheet Config dan Panduan sudah ada. Tidak ada yang diubah.');
-    return;
-  }
+  const addedKeys = configCreated ? [] : backfillConfigSheet();
 
   const created = [];
   if (configCreated) created.push('Config');
   if (panduanCreated) created.push('Panduan');
-  ui.alert('Sheet berikut berhasil dibuat: ' + created.join(', '));
+
+  const messages = [];
+  if (created.length > 0) {
+    messages.push('Sheet dibuat: ' + created.join(', '));
+  }
+  if (addedKeys.length > 0) {
+    messages.push('Key baru ditambahkan ke Config:\n' + addedKeys.join('\n'));
+  }
+  if (messages.length === 0) {
+    messages.push('Sheet Config dan Panduan sudah lengkap. Tidak ada yang diubah.');
+  }
+
+  SpreadsheetApp.getUi().alert(messages.join('\n\n'));
 }
 
 function ensurePanduanSheet_() {
@@ -133,6 +140,13 @@ function ensurePanduanSheet_() {
     ['Tidak masalah. getColumnIndex() mencari kolom berdasarkan teks header,'],
     ['bukan berdasarkan nomor/urutan kolom — asalkan teks header di Value Config'],
     ['cocok dengan header asli di sheet tersebut.'],
+    [''],
+    ['3b. KALAU BARIS HEADER BUKAN DI ROW 1'],
+    ['Sheet yang punya judul/baris kosong di atas tabel diatur lewat key:'],
+    ['header_row_masuk, header_row_retur, header_row_keluar, header_row_rekap.'],
+    ['Isi dengan nomor baris tempat header kolom berada (contoh: 5 atau 6).'],
+    ['Data baru selalu ditambahkan di bawah baris data terakhir, dan sort'],
+    ['hanya menyentuh baris data — judul di atas header tidak ikut teracak.'],
     [''],
     ['4. CACHE'],
     ['getConfig() menyimpan hasil bacaan di cache supaya hemat kuota & lebih cepat.'],

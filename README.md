@@ -46,8 +46,20 @@ was extracted from:
 | `col_keluar_tgl` / `col_keluar_invoice` / `col_keluar_kode` / `col_keluar_nama` / `col_keluar_jumlah` | `TGL` / `INVOICE` / `KODE BARANG` / `NAMA BARANG` / `JUMLAH` |
 | `col_rekap_kode` / `col_rekap_nama` / `col_rekap_stok_awal` / `col_rekap_min_stok` / `col_rekap_sisa_stok` / `col_rekap_status` | `KODE BARANG` / `NAMA BARANG` / `STOK AWAL` / `MIN STOK` / `SISA STOK` / `STATUS` |
 
+| `header_row_masuk` / `header_row_retur` / `header_row_keluar` / `header_row_rekap` | `5` / `5` / `6` / `5` |
+
 `BARANG RETUR` reuses the `col_masuk_*` keys since it shares the same column
-layout as `BARANG MASUK`.
+layout as `BARANG MASUK`. It still gets its own `header_row_retur`, since
+header position is per-sheet.
+
+### Header rows
+
+These sheets carry title and blank rows above the table, so the header is
+not row 1. The `header_row_*` keys say which row holds the column headers;
+everything below it is data. `getColumnIndex()` takes an optional third
+`headerRow` argument and otherwise resolves it from Config via
+`getHeaderRow(sheetName)`. A missing or invalid `header_row_*` value falls
+back to row 1, so a plain single-header sheet still works.
 
 The full usage guide (in Indonesian) is written to a `Panduan` sheet by
 **Stock Manager > Setup**.
