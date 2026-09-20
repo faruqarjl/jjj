@@ -187,7 +187,7 @@ nomor urut, `SAFE`/`REORDER` sebagai STATUS, dan empat baris header berbeda.
 | Form input 1 transaksi (Masuk/Retur/Keluar) | Belum pernah live | Lulus simulasi |
 | Form input batch per invoice | Belum pernah live | Lulus simulasi |
 | Dropdown "Pilih Nama Kamu" dari `daftar_user` | Belum pernah live | Lulus simulasi |
-| Kode akses opsional (`webapp_kode_akses`) | Belum pernah live | Lulus simulasi |
+| Kode akses (`webapp_kode_akses`) aktif, default `gudang-4712` | Belum pernah live | Lulus simulasi — **ganti kodenya**, lihat catatan di bawah |
 | Nama penginput tercatat di ActionLog (`InputBy`) | Belum pernah live | Lulus simulasi |
 | ActionLog lama (7 kolom) otomatis diperlebar | Belum pernah live | Lulus simulasi |
 | Undo tetap jalan untuk baris dari web app | Belum pernah live | Lulus simulasi |
@@ -200,7 +200,10 @@ nomor urut, `SAFE`/`REORDER` sebagai STATUS, dan empat baris header berbeda.
 3. Input 1 invoice berisi 3 barang, cek ketiganya masuk dengan invoice yang sama.
 4. Undo dari menu spreadsheet — 1 invoice harus hilang sekaligus, bukan satu-satu.
 5. Cek sheet ActionLog: kolom `InputBy` terisi nama yang dipilih.
-6. Isi `webapp_kode_akses` di Config, buka ulang halaman, pastikan kode diminta.
+6. Cek sheet Config, key `webapp_kode_akses`. Kalau kolom Value-nya masih
+   kosong (key-nya sudah terlanjur ada dari versi sebelumnya), **ketik
+   kodenya sendiri di situ** — Setup tidak menimpa key yang sudah ada.
+   Lalu buka ulang halaman web app dan pastikan kodenya diminta.
 
 ### Catatan perilaku
 
@@ -218,3 +221,9 @@ menulis ke spreadsheet, tanpa login Google. Dropdown nama itu deklarasi
 mandiri untuk pertanggungjawaban, **bukan autentikasi** — siapa pun bisa
 memilih nama siapa pun. `webapp_kode_akses` hanya penghalang tambahan kalau
 link-nya bocor, bukan kontrol akses sungguhan.
+
+Kode bawaannya `gudang-4712`, dan nilai itu ada di dalam source code yang
+Anda download — artinya siapa pun yang pegang salinan script ini tahu
+kodenya. **Ganti di sheet Config jadi nilai Anda sendiri.** Kodenya juga
+satu untuk semua orang: tidak bisa dicabut per orang, jadi kalau ada staf
+yang keluar, ganti kodenya dan kabari yang lain.

@@ -161,7 +161,7 @@ came from.
 | Key | Default | Meaning |
 |---|---|---|
 | `daftar_user` | `Budi, Siti, Andi` | Names in the "Pilih Nama Kamu" dropdown, comma-separated. Only these names are accepted. |
-| `webapp_kode_akses` | *(blank)* | Optional shared access code. Blank disables the check entirely. |
+| `webapp_kode_akses` | `gudang-4712` | Shared access code. Blank disables the check entirely. **Change it** — the default ships in this source, so anyone with a copy of the script knows it. |
 
 ### ActionLog gained an `InputBy` column
 
@@ -194,7 +194,11 @@ personal Gmail accounts, and it is the trade-off you accepted.
 The "Pilih Nama Kamu" dropdown is a self-declared label for accountability,
 **not authentication** — nothing stops someone picking a colleague's name.
 `webapp_kode_akses` adds a shared code as a second barrier; it is a
-deterrent against a leaked link, not real access control.
+deterrent against a leaked link, not real access control. It ships filled in
+(`gudang-4712`) so a fresh copy is not wide open on day one, but a default
+that lives in the source is public by definition — set your own value in the
+Config sheet. It is one shared code for everyone, so it cannot be revoked for
+one person; when someone leaves, change it and tell the rest.
 
 If you need genuine authentication, the deployment has to change to "Anyone
 with a Google account", which means every member of staff signs in — the exact
