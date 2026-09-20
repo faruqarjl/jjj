@@ -168,13 +168,15 @@ function assertConsistentInvoice_(config, rowDataObjects) {
 
 /**
  * Sorts all data rows (header excluded) in `sheetName` by its date column,
- * newest first, then renumbers the "NO" column (if the sheet has one) and
- * re-applies borders. The date column is resolved from Config based on
- * which transaction sheet sheetName points to (BARANG RETUR reuses the
- * BARANG MASUK column keys, since it shares the same layout).
+ * then renumbers the "NO" column (if the sheet has one) and re-applies
+ * borders. `order` is "desc" (newest first, the default) or "asc". The date
+ * column is resolved from Config based on which transaction sheet sheetName
+ * points to (BARANG RETUR reuses the BARANG MASUK column keys, since it
+ * shares the same layout).
  *
- * Note: Range.sort() cannot sort a range containing merged cells — keep the
- * data rows on these sheets free of merges for this to work.
+ * Ordering happens in JavaScript rather than via Range.sort(), which refuses
+ * any range containing vertical merges. Merges in the data rows are broken
+ * and refilled first — see normalizeMergedCells_().
  */
 function sortByDate(sheetName, order) {
   const direction = normalizeSortOrder_(order);
@@ -268,6 +270,12 @@ function toTimeValue_(value) {
   return null;
 }
 
+/**
+ * Locates a column literally headed "NO", or -1. This column isn't in the
+ * Config defaults — it's treated as an optional, purely cosmetic row-number
+ * column rather than a per-sheet business field, so it's detected by header
+ * text directly instead of adding config keys nothing else needs.
+ */
 function findNoColumnIndex_(headers) {
   return headers.findIndex(function (header) {
     return String(header).trim().toUpperCase() === 'NO';
@@ -345,13 +353,6 @@ function resolveColumnPrefix_(sheetName, config) {
   throw new Error('Sheet "' + sheetName + '" bukan sheet transaksi yang dikenal di Config.');
 }
 
-/**
- * Renumbers a column literally headed "NO" (if present) to 1..N top to
- * bottom. This column isn't in the Config defaults from Fase 0 — it's
- * treated as an optional, purely cosmetic row-number column rather than a
- * per-sheet business field, so it's detected by header text directly
- * instead of adding config keys nothing else needs.
- */
 /**
  * Applies a thin grid border to the table of `sheetName` — the header row
  * down to the last data row, across the table's width only. Title/blank
