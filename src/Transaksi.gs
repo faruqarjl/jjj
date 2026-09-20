@@ -4,6 +4,9 @@
  * resolves columns via getConfig()/getColumnIndex() from Config.gs — none
  * of them special-case a particular sheet, so the same code serves all
  * three transaction sheets without duplication.
+ *
+ * Inserts resync REKAP BARANG for the codes they touch, so appendRow and
+ * batchInsert leave the recap as current as deleteRow and onEdit do.
  */
 
 /**
@@ -33,7 +36,40 @@ function appendRow(sheetName, rowDataObject) {
   table.sheet.getRange(targetRow, 1, 1, rowValues.length).setValues([rowValues]);
 
   applyBorders(sheetName);
+  resyncRekapForCodes_(sheetName, [rowValues]);
   return targetRow;
+}
+
+/**
+ * Recomputes the recap for every item code just written to a transaction
+ * sheet, so an insert leaves REKAP BARANG as current as deleteRow and
+ * onEdit already do. Each distinct code is recalculated once, however many
+ * rows of it a batch contained.
+ *
+ * Does nothing for sheets Config doesn't treat as transactions — the REKAP
+ * form runs its own recalculation. A recap failure is logged rather than
+ * thrown: the rows are already written, so reporting the insert as failed
+ * would be worse than a stale recap.
+ */
+function resyncRekapForCodes_(sheetName, rowValuesList) {
+  const config = getConfig();
+  const columns = transactionColumns_(sheetName, config);
+  if (!columns) return;
+
+  try {
+    const table = getTableInfo_(sheetName);
+    const kodeIndex = resolveColumnIndex_(table.headers, columns.kode, sheetName, table.headerRow) - 1;
+
+    const seen = {};
+    rowValuesList.forEach(function (rowValues) {
+      const kode = normalizeText_(rowValues[kodeIndex]);
+      if (kode === '' || seen[kode]) return;
+      seen[kode] = true;
+      recalculateRekap(kode);
+    });
+  } catch (err) {
+    Logger.log('resyncRekapForCodes_("%s"): rekap gagal disinkronkan — %s', sheetName, err.message);
+  }
 }
 
 /**
@@ -120,6 +156,7 @@ function batchInsert(sheetName, arrayOfRowDataObjects) {
   sheet.getRange(startRow, 1, rows.length, table.width).setValues(rows);
 
   applyBorders(sheetName);
+  resyncRekapForCodes_(sheetName, rows);
 
   const rowIndices = [];
   for (let i = 0; i < rows.length; i++) {
