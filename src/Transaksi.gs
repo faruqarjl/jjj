@@ -176,7 +176,8 @@ function assertConsistentInvoice_(config, rowDataObjects) {
  * Note: Range.sort() cannot sort a range containing merged cells — keep the
  * data rows on these sheets free of merges for this to work.
  */
-function sortByDate(sheetName) {
+function sortByDate(sheetName, order) {
+  const direction = normalizeSortOrder_(order);
   const config = getConfig();
   const prefix = resolveColumnPrefix_(sheetName, config);
   const dateColumnName = config['col_' + prefix + '_tgl'];
@@ -186,8 +187,8 @@ function sortByDate(sheetName) {
   const dataRowCount = table.sheet.getLastRow() - table.headerRow;
 
   Logger.log(
-    'sortByDate("%s"): headerRow=%s dataRows=%s sortColumn=%s',
-    sheetName, table.headerRow, dataRowCount, dateColumnIndex
+    'sortByDate("%s", "%s"): headerRow=%s dataRows=%s sortColumn=%s',
+    sheetName, direction, table.headerRow, dataRowCount, dateColumnIndex
   );
 
   if (dataRowCount < 1) {
@@ -198,7 +199,7 @@ function sortByDate(sheetName) {
   normalizeMergedCells_(table);
 
   const dataRange = table.sheet.getRange(table.firstDataRow, 1, dataRowCount, table.width);
-  const sorted = sortRowsByDateDesc_(dataRange.getValues(), dateColumnIndex - 1);
+  const sorted = sortRowsByDate_(dataRange.getValues(), dateColumnIndex - 1, direction);
 
   const noIndex = findNoColumnIndex_(table.headers);
   if (noIndex !== -1) {
@@ -212,13 +213,28 @@ function sortByDate(sheetName) {
   return sorted.length;
 }
 
+/** "asc" or "desc"; empty/omitted means "desc". Anything else is a typo. */
+function normalizeSortOrder_(order) {
+  if (order === undefined || order === null || order === '') return 'desc';
+
+  const normalized = String(order).trim().toLowerCase();
+  if (normalized !== 'asc' && normalized !== 'desc') {
+    throw new Error('Parameter order harus "asc" atau "desc", bukan ' + JSON.stringify(order) + '.');
+  }
+  return normalized;
+}
+
 /**
- * Orders rows newest-first by `dateIndex` (0-based) in plain JavaScript.
- * Rows whose date cell can't be read as a date sink to the bottom. Ties and
- * unreadable dates keep their original relative order — the original index
- * is the explicit tiebreaker rather than relying on sort stability.
+ * Orders rows by `dateIndex` (0-based) in plain JavaScript: "desc" puts the
+ * newest first, "asc" the oldest first. Rows whose date cell can't be read
+ * as a date sink to the bottom in BOTH directions — they aren't dates, so
+ * they shouldn't lead the table. Ties and unreadable dates keep their
+ * original relative order: the original index is the explicit tiebreaker
+ * rather than relying on sort stability.
  */
-function sortRowsByDateDesc_(rows, dateIndex) {
+function sortRowsByDate_(rows, dateIndex, order) {
+  const sign = order === 'asc' ? -1 : 1;
+
   return rows
     .map(function (row, i) {
       return { row: row, i: i, key: toTimeValue_(row[dateIndex]) };
@@ -228,7 +244,7 @@ function sortRowsByDateDesc_(rows, dateIndex) {
         if (a.key === null && b.key === null) return a.i - b.i;
         return a.key === null ? 1 : -1;
       }
-      if (a.key !== b.key) return b.key - a.key;
+      if (a.key !== b.key) return sign * (b.key - a.key);
       return a.i - b.i;
     })
     .map(function (entry) {

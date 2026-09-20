@@ -7,10 +7,15 @@ const PANDUAN_SHEET_NAME = 'Panduan';
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
 
-  const sortMenu = ui.createMenu('Urutkan Terbaru')
-    .addItem('BARANG MASUK', 'sortBarangMasuk')
-    .addItem('BARANG RETUR', 'sortBarangRetur')
-    .addItem('BARANG KELUAR', 'sortBarangKeluar');
+  const sortMenu = ui.createMenu('Urutkan Tanggal')
+    .addItem('BARANG MASUK - Terbaru ke Terlama', 'sortMasukDesc')
+    .addItem('BARANG MASUK - Terlama ke Terbaru', 'sortMasukAsc')
+    .addSeparator()
+    .addItem('BARANG RETUR - Terbaru ke Terlama', 'sortReturDesc')
+    .addItem('BARANG RETUR - Terlama ke Terbaru', 'sortReturAsc')
+    .addSeparator()
+    .addItem('BARANG KELUAR - Terbaru ke Terlama', 'sortKeluarDesc')
+    .addItem('BARANG KELUAR - Terlama ke Terbaru', 'sortKeluarAsc');
 
   ui.createMenu('Stock Manager')
     .addItem('Setup', 'runSetup')
@@ -79,16 +84,28 @@ function testBatchInsert() {
   );
 }
 
-function sortBarangMasuk() {
-  sortByDate(getConfig().sheet_barang_masuk);
+function sortMasukDesc() {
+  sortByDate(getConfigValue('sheet_barang_masuk'), 'desc');
 }
 
-function sortBarangRetur() {
-  sortByDate(getConfig().sheet_barang_retur);
+function sortMasukAsc() {
+  sortByDate(getConfigValue('sheet_barang_masuk'), 'asc');
 }
 
-function sortBarangKeluar() {
-  sortByDate(getConfig().sheet_barang_keluar);
+function sortReturDesc() {
+  sortByDate(getConfigValue('sheet_barang_retur'), 'desc');
+}
+
+function sortReturAsc() {
+  sortByDate(getConfigValue('sheet_barang_retur'), 'asc');
+}
+
+function sortKeluarDesc() {
+  sortByDate(getConfigValue('sheet_barang_keluar'), 'desc');
+}
+
+function sortKeluarAsc() {
+  sortByDate(getConfigValue('sheet_barang_keluar'), 'asc');
 }
 
 /**
