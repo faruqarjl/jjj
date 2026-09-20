@@ -98,9 +98,18 @@ function recalculateRekap(kodeBarang) {
     );
   }
 
+  const minStok = readRekapValue_(found, config.col_rekap_min_stok);
+  const status = calculateStatus_(sisaStok, minStok);
+  if (status === STATUS_TIDAK_DIKETAHUI) {
+    Logger.log(
+      'recalculateRekap("%s"): MIN STOK (%s) kosong/nol — STATUS diisi "N/A".',
+      kode, minStok
+    );
+  }
+
   Logger.log(
-    'recalculateRekap("%s"): stokAwal=%s masuk=%s retur=%s keluar=%s -> sisa=%s, sisaDus=%s',
-    kode, stokAwal, masuk, retur, keluar, sisaStok, sisaDus === null ? 'N/A' : sisaDus
+    'recalculateRekap("%s"): stokAwal=%s masuk=%s retur=%s keluar=%s -> sisa=%s, sisaDus=%s, status=%s',
+    kode, stokAwal, masuk, retur, keluar, sisaStok, sisaDus === null ? 'N/A' : sisaDus, status
   );
 
   writeRekapValue_(found, config.col_rekap_masuk, masuk);
@@ -108,7 +117,61 @@ function recalculateRekap(kodeBarang) {
   writeRekapValue_(found, config.col_rekap_keluar, keluar);
   writeRekapValue_(found, config.col_rekap_sisa_stok, sisaStok);
   writeRekapValue_(found, config.col_rekap_sisa_dus, sisaDus === null ? 'N/A' : sisaDus);
+  writeRekapValue_(found, config.col_rekap_status, status);
+  applyStatusColor_(found.table.sheet.getName(), found.row, status);
   return true;
+}
+
+/**
+ * Recalculates every item in REKAP BARANG — for a first-time setup or a
+ * manual refresh. Each row goes through recalculateRekap() rather than a
+ * second copy of the arithmetic, and a failure on one item is recorded and
+ * stepped over so one bad row can't abort the whole run.
+ *
+ * Note this reads the three transaction sheets once per item, so a large
+ * catalogue is slow; progress is logged every 50 rows.
+ */
+function recalculateAllRekap() {
+  const config = getConfig();
+  const sheetName = getConfigValue('sheet_rekap_barang');
+  const table = getTableInfo_(sheetName);
+  const rowCount = table.sheet.getLastRow() - table.headerRow;
+
+  const summary = { total: 0, updated: 0, skipped: 0, failed: 0, failures: [] };
+  if (rowCount < 1) return summary;
+
+  const kodeColumn = getColumnIndex(sheetName, config.col_rekap_kode, table.headerRow);
+  const codes = table.sheet.getRange(table.firstDataRow, kodeColumn, rowCount, 1).getValues();
+
+  Logger.log('recalculateAllRekap(): mulai, %s baris di "%s".', rowCount, sheetName);
+
+  codes.forEach(function (row) {
+    const kode = normalizeText_(row[0]);
+    if (kode === '') return;
+
+    summary.total++;
+    try {
+      if (recalculateRekap(kode)) {
+        summary.updated++;
+      } else {
+        summary.skipped++;
+      }
+    } catch (err) {
+      summary.failed++;
+      summary.failures.push(kode + ': ' + err.message);
+      Logger.log('recalculateAllRekap(): gagal untuk "%s" — %s', kode, err.message);
+    }
+
+    if (summary.total % 50 === 0) {
+      Logger.log('recalculateAllRekap(): %s dari %s baris diproses…', summary.total, rowCount);
+    }
+  });
+
+  Logger.log(
+    'recalculateAllRekap(): selesai — %s diperbarui, %s dilewati, %s gagal.',
+    summary.updated, summary.skipped, summary.failed
+  );
+  return summary;
 }
 
 /**

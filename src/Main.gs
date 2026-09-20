@@ -26,6 +26,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Hapus Baris', 'promptDeleteRow')
     .addItem('Edit Rekap Barang', 'showRekapForm')
+    .addItem('Refresh Semua Status', 'refreshSemuaStatus')
     .addSeparator()
     .addItem('Debug Config', 'debugConfig')
     .addItem('Clear Cache Config', 'clearConfigCacheAndNotify')
@@ -50,6 +51,21 @@ function onEdit(e) {
   } catch (err) {
     Logger.log('onEdit() -> handleTransaksiEdit_ failed: %s', err.message);
   }
+}
+
+/** Menu handler: recalculates every item in REKAP BARANG, then reports totals. */
+function refreshSemuaStatus() {
+  const summary = recalculateAllRekap();
+
+  const parts = [summary.updated + ' barang diperbarui'];
+  if (summary.skipped > 0) parts.push(summary.skipped + ' dilewati');
+  if (summary.failed > 0) parts.push(summary.failed + ' gagal');
+
+  let message = 'Selesai dari ' + summary.total + ' baris: ' + parts.join(', ') + '.';
+  if (summary.failures.length > 0) {
+    message += '\n\nYang gagal:\n' + summary.failures.join('\n');
+  }
+  notify_('Refresh Semua Status', message);
 }
 
 /** Menu handler: asks for a row number, then deletes it from the active sheet. */
