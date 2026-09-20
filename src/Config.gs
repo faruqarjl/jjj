@@ -310,6 +310,16 @@ function getColumnIndex(sheetName, columnHeaderName, headerRow) {
   }
 
   const headers = sheet.getRange(row, 1, 1, lastColumn).getValues()[0];
+  return resolveColumnIndex_(headers, columnHeaderName, sheetName, row);
+}
+
+/**
+ * Same lookup as getColumnIndex(), against a header row already in memory.
+ * Callers that resolve many columns on one sheet — the batch recap pass —
+ * use this with getTableInfo_()'s headers instead of paying a Sheets round
+ * trip to re-read the same header row for every column.
+ */
+function resolveColumnIndex_(headers, columnHeaderName, sheetName, headerRow) {
   const wanted = normalizeText_(columnHeaderName).toLowerCase();
   const index = headers.findIndex(function (header) {
     return normalizeText_(header).toLowerCase() === wanted;
@@ -318,7 +328,7 @@ function getColumnIndex(sheetName, columnHeaderName, headerRow) {
   if (index === -1) {
     throw new Error(
       'Kolom "' + columnHeaderName + '" tidak ditemukan di sheet "' + sheetName +
-      '" (header row ' + row + '). Header yang ada: ' +
+      '" (header row ' + headerRow + '). Header yang ada: ' +
       headers.map(function (h) { return JSON.stringify(h); }).join(' | ')
     );
   }

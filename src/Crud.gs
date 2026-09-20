@@ -85,51 +85,87 @@ function recalculateRekap(kodeBarang) {
   const retur = sumTransaksi_(config.sheet_barang_retur, kode, config);
   const keluar = sumTransaksi_(config.sheet_barang_keluar, kode, config);
 
-  const stokAwal = readRekapValue_(found, config.col_rekap_stok_awal);
-  const sisaStok = stokAwal + masuk + retur - keluar;
-
-  const isiDus = readRekapValue_(found, config.col_rekap_isi_dus);
-  const isiPack = readRekapValue_(found, config.col_rekap_isi_pack);
-  const sisaDus = formatSisaDus_(sisaStok, isiDus, isiPack);
-  if (sisaDus === null) {
-    Logger.log(
-      'recalculateRekap("%s"): ISI PER DUS (%s) atau ISI PER PACK (%s) kosong/nol — SISA DUS diisi "N/A".',
-      kode, isiDus, isiPack
-    );
-  }
-
-  const minStok = readRekapValue_(found, config.col_rekap_min_stok);
-  const status = calculateStatus_(sisaStok, minStok);
-  if (status === STATUS_TIDAK_DIKETAHUI) {
-    Logger.log(
-      'recalculateRekap("%s"): MIN STOK (%s) kosong/nol — STATUS diisi "N/A".',
-      kode, minStok
-    );
-  }
-
-  Logger.log(
-    'recalculateRekap("%s"): stokAwal=%s masuk=%s retur=%s keluar=%s -> sisa=%s, sisaDus=%s, status=%s',
-    kode, stokAwal, masuk, retur, keluar, sisaStok, sisaDus === null ? 'N/A' : sisaDus, status
-  );
+  const input = {
+    stokAwal: readRekapValue_(found, config.col_rekap_stok_awal),
+    masuk: masuk,
+    retur: retur,
+    keluar: keluar,
+    isiDus: readRekapValue_(found, config.col_rekap_isi_dus),
+    isiPack: readRekapValue_(found, config.col_rekap_isi_pack),
+    minStok: readRekapValue_(found, config.col_rekap_min_stok)
+  };
+  const values = computeRekapValues_(input);
+  logRekapWarnings_(kode, input, values);
 
   writeRekapValue_(found, config.col_rekap_masuk, masuk);
   writeRekapValue_(found, config.col_rekap_retur, retur);
   writeRekapValue_(found, config.col_rekap_keluar, keluar);
-  writeRekapValue_(found, config.col_rekap_sisa_stok, sisaStok);
-  writeRekapValue_(found, config.col_rekap_sisa_dus, sisaDus === null ? 'N/A' : sisaDus);
-  writeRekapValue_(found, config.col_rekap_status, status);
-  applyStatusColor_(found.table.sheet.getName(), found.row, status);
+  writeRekapValue_(found, config.col_rekap_sisa_stok, values.sisaStok);
+  writeRekapValue_(found, config.col_rekap_sisa_dus, values.sisaDusText);
+  writeRekapValue_(found, config.col_rekap_status, values.status);
+  applyStatusColor_(found.table.sheet.getName(), found.row, values.status);
   return true;
 }
 
 /**
- * Recalculates every item in REKAP BARANG — for a first-time setup or a
- * manual refresh. Each row goes through recalculateRekap() rather than a
- * second copy of the arithmetic, and a failure on one item is recorded and
- * stepped over so one bad row can't abort the whole run.
+ * The recap arithmetic for one item, with no sheet access at all.
  *
- * Note this reads the three transaction sheets once per item, so a large
- * catalogue is slow; progress is logged every 50 rows.
+ * Both recalculateRekap() (which reads one item on demand) and
+ * recalculateAllRekap() (which reads every sheet once up front) run their
+ * numbers through here, so the two paths cannot drift apart — only how the
+ * inputs are fetched differs.
+ */
+function computeRekapValues_(input) {
+  const sisaStok = input.stokAwal + input.masuk + input.retur - input.keluar;
+  const sisaDus = formatSisaDus_(sisaStok, input.isiDus, input.isiPack);
+  const status = calculateStatus_(sisaStok, input.minStok);
+
+  return {
+    sisaStok: sisaStok,
+    sisaDus: sisaDus,
+    sisaDusText: sisaDus === null ? 'N/A' : sisaDus,
+    status: status,
+    warna: STATUS_WARNA[status] || null
+  };
+}
+
+function logRekapWarnings_(kode, input, values) {
+  if (values.sisaDus === null) {
+    Logger.log(
+      'recalculateRekap("%s"): ISI PER DUS (%s) atau ISI PER PACK (%s) kosong/nol — SISA DUS diisi "N/A".',
+      kode, input.isiDus, input.isiPack
+    );
+  }
+  if (values.status === STATUS_TIDAK_DIKETAHUI) {
+    Logger.log(
+      'recalculateRekap("%s"): MIN STOK (%s) kosong/nol — STATUS diisi "N/A".',
+      kode, input.minStok
+    );
+  }
+  Logger.log(
+    'recalculateRekap("%s"): stokAwal=%s masuk=%s retur=%s keluar=%s -> sisa=%s, sisaDus=%s, status=%s',
+    kode, input.stokAwal, input.masuk, input.retur, input.keluar,
+    values.sisaStok, values.sisaDusText, values.status
+  );
+}
+
+/**
+ * Recalculates every item in REKAP BARANG — for a first-time setup or a
+ * manual refresh.
+ *
+ * Sheet access is a fixed cost here, not one per item: each transaction
+ * sheet is read once into a per-code totals map, REKAP is read once, every
+ * row is computed in memory, and each derived column is written back in a
+ * single setValues(). A 200-item catalogue costs the same number of API
+ * calls as a 5-item one, which is what keeps this inside the 6-minute
+ * execution limit.
+ *
+ * Derived columns are written individually rather than writing the whole
+ * block back: re-writing untouched columns would replace any formula in
+ * them with the static value getValues() returned.
+ *
+ * The arithmetic itself is computeRekapValues_() — the same function
+ * recalculateRekap() uses — so batch and single-item results always agree.
  */
 function recalculateAllRekap() {
   const config = getConfig();
@@ -140,22 +176,74 @@ function recalculateAllRekap() {
   const summary = { total: 0, updated: 0, skipped: 0, failed: 0, failures: [] };
   if (rowCount < 1) return summary;
 
-  const kodeColumn = getColumnIndex(sheetName, config.col_rekap_kode, table.headerRow);
-  const codes = table.sheet.getRange(table.firstDataRow, kodeColumn, rowCount, 1).getValues();
-
   Logger.log('recalculateAllRekap(): mulai, %s baris di "%s".', rowCount, sheetName);
 
-  codes.forEach(function (row) {
-    const kode = normalizeText_(row[0]);
+  const totals = {
+    masuk: buildTransaksiTotals_(config.sheet_barang_masuk, config),
+    retur: buildTransaksiTotals_(config.sheet_barang_retur, config),
+    keluar: buildTransaksiTotals_(config.sheet_barang_keluar, config)
+  };
+
+  // Resolved against the header row getTableInfo_ already read, so eleven
+  // column lookups cost zero extra Sheets round trips.
+  const at = function (columnHeaderName) {
+    return resolveColumnIndex_(table.headers, columnHeaderName, sheetName, table.headerRow);
+  };
+  const column = {
+    kode: at(config.col_rekap_kode),
+    stokAwal: at(config.col_rekap_stok_awal),
+    minStok: at(config.col_rekap_min_stok),
+    isiDus: at(config.col_rekap_isi_dus),
+    isiPack: at(config.col_rekap_isi_pack),
+    masuk: at(config.col_rekap_masuk),
+    retur: at(config.col_rekap_retur),
+    keluar: at(config.col_rekap_keluar),
+    sisaStok: at(config.col_rekap_sisa_stok),
+    sisaDus: at(config.col_rekap_sisa_dus),
+    status: at(config.col_rekap_status)
+  };
+
+  const rows = table.sheet.getRange(table.firstDataRow, 1, rowCount, table.width).getValues();
+  const statusRange = table.sheet.getRange(table.firstDataRow, column.status, rowCount, 1);
+  const warna = statusRange.getBackgrounds();
+
+  // Seeded with each row's current value, so rows this run doesn't touch
+  // (blank codes, failures) are written back unchanged instead of blanked.
+  const out = {
+    masuk: rows.map(function (row) { return [row[column.masuk - 1]]; }),
+    retur: rows.map(function (row) { return [row[column.retur - 1]]; }),
+    keluar: rows.map(function (row) { return [row[column.keluar - 1]]; }),
+    sisaStok: rows.map(function (row) { return [row[column.sisaStok - 1]]; }),
+    sisaDus: rows.map(function (row) { return [row[column.sisaDus - 1]]; }),
+    status: rows.map(function (row) { return [row[column.status - 1]]; })
+  };
+
+  rows.forEach(function (row, i) {
+    const kode = normalizeText_(row[column.kode - 1]);
     if (kode === '') return;
 
     summary.total++;
     try {
-      if (recalculateRekap(kode)) {
-        summary.updated++;
-      } else {
-        summary.skipped++;
-      }
+      const key = kode.toLowerCase();
+      const input = {
+        stokAwal: toNumber_(row[column.stokAwal - 1]),
+        masuk: totals.masuk[key] || 0,
+        retur: totals.retur[key] || 0,
+        keluar: totals.keluar[key] || 0,
+        isiDus: toNumber_(row[column.isiDus - 1]),
+        isiPack: toNumber_(row[column.isiPack - 1]),
+        minStok: toNumber_(row[column.minStok - 1])
+      };
+      const values = computeRekapValues_(input);
+
+      out.masuk[i] = [input.masuk];
+      out.retur[i] = [input.retur];
+      out.keluar[i] = [input.keluar];
+      out.sisaStok[i] = [values.sisaStok];
+      out.sisaDus[i] = [values.sisaDusText];
+      out.status[i] = [values.status];
+      warna[i] = [values.warna];
+      summary.updated++;
     } catch (err) {
       summary.failed++;
       summary.failures.push(kode + ': ' + err.message);
@@ -163,15 +251,58 @@ function recalculateAllRekap() {
     }
 
     if (summary.total % 50 === 0) {
-      Logger.log('recalculateAllRekap(): %s dari %s baris diproses…', summary.total, rowCount);
+      Logger.log('recalculateAllRekap(): memproses %s dari %s barang…', summary.total, rowCount);
     }
   });
+
+  writeRekapColumn_(table, column.masuk, out.masuk);
+  writeRekapColumn_(table, column.retur, out.retur);
+  writeRekapColumn_(table, column.keluar, out.keluar);
+  writeRekapColumn_(table, column.sisaStok, out.sisaStok);
+  writeRekapColumn_(table, column.sisaDus, out.sisaDus);
+  writeRekapColumn_(table, column.status, out.status);
+  statusRange.setBackgrounds(warna);
 
   Logger.log(
     'recalculateAllRekap(): selesai — %s diperbarui, %s dilewati, %s gagal.',
     summary.updated, summary.skipped, summary.failed
   );
   return summary;
+}
+
+function writeRekapColumn_(table, column, columnValues) {
+  table.sheet.getRange(table.firstDataRow, column, columnValues.length, 1).setValues(columnValues);
+}
+
+/**
+ * Totals JUMLAH per item code across one whole transaction sheet in a
+ * single read, keyed the same way sumTransaksi_() matches (normalized,
+ * lower-cased) so both produce identical totals.
+ */
+function buildTransaksiTotals_(sheetName, config) {
+  const columns = transactionColumns_(sheetName, config);
+  if (!columns) return {};
+
+  const table = getTableInfo_(sheetName);
+  const rowCount = table.sheet.getLastRow() - table.headerRow;
+  if (rowCount < 1) return {};
+
+  const kodeIndex = resolveColumnIndex_(table.headers, columns.kode, sheetName, table.headerRow) - 1;
+  const jumlahIndex = resolveColumnIndex_(table.headers, columns.jumlah, sheetName, table.headerRow) - 1;
+  const values = table.sheet.getRange(table.firstDataRow, 1, rowCount, table.width).getValues();
+
+  const totals = {};
+  values.forEach(function (row) {
+    const key = normalizeText_(row[kodeIndex]).toLowerCase();
+    if (key === '') return;
+    totals[key] = (totals[key] || 0) + toNumber_(row[jumlahIndex]);
+  });
+
+  Logger.log(
+    'buildTransaksiTotals_("%s"): %s baris -> %s kode unik.',
+    sheetName, rowCount, Object.keys(totals).length
+  );
+  return totals;
 }
 
 /**
