@@ -252,10 +252,14 @@ function applyBorders(sheetName) {
 
 function getSheetOrThrow_(sheetName) {
   if (!sheetName) {
-    Logger.log('getSheetOrThrow_(): sheetName is falsy (%s) — likely an undefined Config value.', sheetName);
+    Logger.log('getSheetOrThrow_(): sheetName is falsy (typeof %s).', typeof sheetName);
     throw new Error(
-      'sheetName kosong/undefined. Ini biasanya berarti getConfig() tidak menemukan key yang ' +
-      'diharapkan (misal sheet_barang_masuk) — cek isi sheet Config.'
+      'sheetName kosong/undefined. Dua kemungkinan:\n' +
+      '1) Anda menjalankan appendRow/batchInsert/sortByDate LANGSUNG dari tombol Run di editor ' +
+      'Apps Script. Function ini generic dan butuh parameter, jadi kalau dijalankan sendiri ' +
+      'parameternya undefined. Jalankan testAppendRow/testBatchInsert, atau lewat menu Stock Manager.\n' +
+      '2) Kalau dipanggil lewat menu, berarti getConfig() tidak menemukan key yang diharapkan ' +
+      '(misal sheet_barang_masuk) — cek isi sheet Config lewat Stock Manager > Debug Config.'
     );
   }
 
