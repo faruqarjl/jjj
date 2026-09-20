@@ -88,22 +88,47 @@ function recalculateRekap(kodeBarang) {
   const stokAwal = readRekapValue_(found, config.col_rekap_stok_awal);
   const sisaStok = stokAwal + masuk + retur - keluar;
 
-  // SISA DUS = SISA STOK / ISI PER DUS, rounded down. A zero or blank
-  // ISI PER DUS would divide to Infinity, so it yields 0 instead.
   const isiDus = readRekapValue_(found, config.col_rekap_isi_dus);
-  const sisaDus = isiDus > 0 ? Math.floor(sisaStok / isiDus) : 0;
+  const isiPack = readRekapValue_(found, config.col_rekap_isi_pack);
+  const sisaDus = formatSisaDus_(sisaStok, isiDus, isiPack);
+  if (sisaDus === null) {
+    Logger.log(
+      'recalculateRekap("%s"): ISI PER DUS (%s) atau ISI PER PACK (%s) kosong/nol — SISA DUS diisi "N/A".',
+      kode, isiDus, isiPack
+    );
+  }
 
   Logger.log(
-    'recalculateRekap("%s"): stokAwal=%s masuk=%s retur=%s keluar=%s -> sisa=%s, isiDus=%s -> sisaDus=%s',
-    kode, stokAwal, masuk, retur, keluar, sisaStok, isiDus, sisaDus
+    'recalculateRekap("%s"): stokAwal=%s masuk=%s retur=%s keluar=%s -> sisa=%s, sisaDus=%s',
+    kode, stokAwal, masuk, retur, keluar, sisaStok, sisaDus === null ? 'N/A' : sisaDus
   );
 
   writeRekapValue_(found, config.col_rekap_masuk, masuk);
   writeRekapValue_(found, config.col_rekap_retur, retur);
   writeRekapValue_(found, config.col_rekap_keluar, keluar);
   writeRekapValue_(found, config.col_rekap_sisa_stok, sisaStok);
-  writeRekapValue_(found, config.col_rekap_sisa_dus, sisaDus);
+  writeRekapValue_(found, config.col_rekap_sisa_dus, sisaDus === null ? 'N/A' : sisaDus);
   return true;
+}
+
+/**
+ * Breaks a quantity into the original "{dus} DUS {pack}PACK" text, e.g.
+ * 8800 with 5000/dus and 100/pack -> "1 DUS 38PACK". Returns null when
+ * either divisor is missing or zero, so the caller can write "N/A" rather
+ * than dividing by zero.
+ *
+ * The remainder is computed as sisaStok - totalDus * isiDus rather than
+ * with %, so a negative stock still decomposes coherently (-5 with 12/dus
+ * is "-1 DUS 0PACK", i.e. -12 + 7) instead of yielding a negative pack
+ * count the way JavaScript's remainder operator would.
+ */
+function formatSisaDus_(sisaStok, isiDus, isiPack) {
+  if (!(isiDus > 0) || !(isiPack > 0)) return null;
+
+  const totalDus = Math.floor(sisaStok / isiDus);
+  const sisaSetelahDus = sisaStok - totalDus * isiDus;
+  const totalPack = Math.floor(sisaSetelahDus / isiPack);
+  return totalDus + ' DUS ' + totalPack + 'PACK';
 }
 
 /** Locates an item code's row in REKAP BARANG, or null. */
