@@ -159,7 +159,7 @@ Disepakati saat audit Fase 7 — didokumentasikan, tidak diperbaiki:
 
 ## Cakupan simulasi
 
-9 suite, 615 pemeriksaan, semua hijau:
+10 suite, 712 pemeriksaan, semua hijau:
 
 | Suite | Cakupan | Jumlah |
 |---|---|---|
@@ -171,7 +171,8 @@ Disepakati saat audit Fase 7 — didokumentasikan, tidak diperbaiki:
 | `harness6` | Warna, Filter View | 74 |
 | `harness7` | Export PDF/Excel | 68 |
 | `harness8` | **Bisnis asing** + Panduan otomatis | 54 |
-| `harness9` | Form web app (Fase 8A) | 74 |
+| `harness9` | Form web app (Fase 8A) | 78 |
+| `harness10` | Dashboard read-only (Fase 8B) | 93 |
 
 `harness8` yang paling relevan untuk reusability: sheet berbahasa Inggris, nama
 kolom berbeda di tiap sheet, RETUR punya kolom sendiri, `SEQ`/`LINE` sebagai
@@ -227,3 +228,47 @@ Anda download — artinya siapa pun yang pegang salinan script ini tahu
 kodenya. **Ganti di sheet Config jadi nilai Anda sendiri.** Kodenya juga
 satu untuk semua orang: tidak bisa dicabut per orang, jadi kalau ada staf
 yang keluar, ganti kodenya dan kabari yang lain.
+
+
+---
+
+## Fase 8B — Dashboard read-only
+
+| Fitur | Status | Catatan |
+|---|---|---|
+| Satu URL, dua halaman (`?page=dashboard`) | Belum pernah live | Lulus simulasi |
+| Cards ringkasan (total, aman, perlu restok, transaksi hari ini) | Belum pernah live | Lulus simulasi |
+| Donut chart AMAN vs PERLU RESTOK | Belum pernah live | Lulus simulasi |
+| Bar chart horizontal Top 10 stok tersedikit | Belum pernah live | Lulus simulasi |
+| Tabel "Perlu Restok Segera" (lengkap, bukan top 10) | Belum pernah live | Lulus simulasi |
+| Auto-refresh 5 menit + tombol refresh manual | Belum pernah live | Lulus simulasi |
+| Kode akses sama dengan Fase 8A | Belum pernah live | Lulus simulasi |
+| Link navigasi Input <-> Dashboard di kedua halaman | Belum pernah live | Lulus simulasi |
+
+### Yang perlu Anda tes sendiri setelah deploy ulang
+
+**Deploy ulang dulu** — halaman dashboard tidak akan muncul sebelum
+Deploy > Manage deployments > pensil > Version: **New version** > Deploy.
+
+1. Buka URL web app, lalu klik tab **Dashboard** di bagian atas.
+   Atau langsung tambahkan `?page=dashboard` di belakang URL-nya.
+2. Bandingkan angka di cards dengan isi sheet REKAP BARANG — harus persis sama.
+3. Cek "Transaksi Hari Ini": input 1 transaksi lewat form, refresh dashboard,
+   angkanya harus naik 1.
+4. Cek tabel "Perlu Restok Segera": urutannya dari selisih paling negatif.
+5. Biarkan halaman terbuka 5 menit, pastikan angkanya menyegarkan sendiri.
+6. Buka dari HP dan dari laptop — dua-duanya harus enak dilihat.
+7. Kalau kode akses aktif: buka dashboard di browser lain (atau mode incognito),
+   pastikan diminta kode dulu sebelum data muncul.
+
+### Catatan perilaku
+
+- Dashboard **tidak menghitung ulang apa pun**. SISA STOK, SISA DUS dan STATUS
+  dibaca apa adanya dari REKAP BARANG, jadi angkanya tidak mungkin beda dengan
+  spreadsheet. Kalau angka di dashboard terlihat salah, yang salah ada di
+  REKAP BARANG — jalankan Stock Manager > Refresh Semua Status.
+- Halaman ini **read-only total**: tidak ada tombol simpan, ubah, atau hapus.
+  Secara teknis pun `getDashboardData()` tidak pernah memanggil `setValues`.
+- Grafik diambil dari CDN (Chart.js). Kalau koneksi ke CDN diblokir, grafiknya
+  diganti keterangan dan angka di cards serta tabel tetap tampil benar.
+- Biaya baca tetap: 1 kali baca per sheet, berapa pun jumlah barangnya.

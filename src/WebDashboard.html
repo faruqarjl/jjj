@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <style>
+      /* Same tokens as WebAppInput.html — one product, two pages. */
+      :root {
+        --accent: #2563eb;
+        --accent-dark: #1d4ed8;
+        --accent-soft: #eff6ff;
+        --ink: #0f172a;
+        --muted: #64748b;
+        --line: #e2e8f0;
+        --surface: #ffffff;
+        --bg: #f1f5f9;
+        --ok: #15803d;
+        --ok-soft: #f0fdf4;
+        --err: #b91c1c;
+        --err-soft: #fef2f2;
+        --warn: #b45309;
+        --radius: 14px;
+      }
+
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+      body {
+        margin: 0;
+        padding: 0 0 40px;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      header {
+        background: var(--surface);
+        border-bottom: 1px solid var(--line);
+        padding: 16px 18px 0;
+        position: sticky; top: 0; z-index: 10;
+      }
+      .head-row {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: 12px; max-width: 1080px; margin: 0 auto;
+      }
+      h1 { font-size: 19px; margin: 0 0 2px; letter-spacing: -.01em; }
+      .sub { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+
+      .tabs { display: flex; gap: 4px; max-width: 1080px; margin: 0 auto; }
+      .tab {
+        flex: 1; border: 0; background: none; cursor: pointer; text-decoration: none;
+        text-align: center; display: block;
+        font: inherit; font-size: 14px; font-weight: 600; color: var(--muted);
+        padding: 11px 6px; border-bottom: 3px solid transparent;
+        transition: color .18s ease, border-color .18s ease;
+      }
+      .tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+
+      button.refresh {
+        flex: none; border: 1px solid var(--line); background: var(--surface);
+        color: var(--accent); font: inherit; font-size: 14px; font-weight: 600;
+        min-height: 40px; padding: 8px 14px; border-radius: 10px; cursor: pointer;
+        display: flex; align-items: center; gap: 8px;
+        transition: background .15s ease, transform .1s ease;
+      }
+      button.refresh:active { transform: scale(.97); }
+      button.refresh:disabled { opacity: .6; cursor: default; }
+
+      main { padding: 16px; max-width: 1080px; margin: 0 auto; }
+
+      .card {
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: var(--radius); padding: 16px; margin-bottom: 14px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+        animation: rise .28s cubic-bezier(.2, .7, .3, 1) both;
+      }
+      @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+      .card h2 {
+        font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+        color: var(--muted); margin: 0 0 12px; font-weight: 700;
+      }
+
+      /* Summary cards */
+      .cards {
+        display: grid; gap: 12px; margin-bottom: 14px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      @media (min-width: 720px) { .cards { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+      .stat {
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: var(--radius); padding: 15px 16px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+        animation: rise .28s cubic-bezier(.2, .7, .3, 1) both;
+      }
+      .stat .k {
+        font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em;
+        color: var(--muted); font-weight: 700; margin: 0 0 6px;
+      }
+      .stat .v { font-size: 30px; font-weight: 800; line-height: 1.1; letter-spacing: -.02em; }
+      .stat .n { font-size: 12.5px; color: var(--muted); margin-top: 5px; }
+
+      .stat.good { border-color: #bbf7d0; background: var(--ok-soft); }
+      .stat.good .v, .stat.good .k { color: var(--ok); }
+
+      /* The number the boss opened this page for. */
+      .stat.alert {
+        border-color: #fecaca; background: var(--err-soft);
+        grid-column: span 2; box-shadow: 0 2px 10px rgba(185, 28, 28, .10);
+      }
+      @media (min-width: 720px) { .stat.alert { grid-column: span 1; } }
+      .stat.alert .v { font-size: 46px; color: var(--err); }
+      .stat.alert .k { color: var(--err); }
+      .stat.alert.clear { border-color: #bbf7d0; background: var(--ok-soft); }
+      .stat.alert.clear .v, .stat.alert.clear .k { color: var(--ok); }
+
+      .mini { display: flex; gap: 14px; margin-top: 4px; flex-wrap: wrap; }
+      .mini div { font-size: 12.5px; color: var(--muted); }
+      .mini b { display: block; font-size: 19px; font-weight: 800; color: var(--ink); line-height: 1.2; }
+
+      /* Charts */
+      .charts { display: grid; gap: 14px; }
+      @media (min-width: 860px) { .charts { grid-template-columns: 360px minmax(0, 1fr); align-items: start; } }
+      .chart-box { position: relative; height: 260px; }
+      .chart-box.tall { height: 340px; }
+
+      /* Table */
+      .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
+      table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 520px; }
+      th, td { padding: 10px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+      th {
+        font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em;
+        color: var(--muted); font-weight: 700; white-space: nowrap;
+      }
+      td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+      tbody tr:last-child td { border-bottom: 0; }
+      .kode { font-weight: 700; white-space: nowrap; }
+      .gap { font-weight: 800; color: var(--err); }
+      .gap.ok { color: var(--ok); }
+
+      .empty {
+        text-align: center; padding: 26px 16px; color: var(--muted); font-size: 14.5px;
+      }
+      .empty strong { display: block; color: var(--ink); font-size: 16px; margin-bottom: 5px; }
+
+      /* Loading skeleton */
+      .skel { background: var(--line); border-radius: 8px; animation: pulse 1.3s ease-in-out infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+      .skel.k { height: 11px; width: 55%; margin-bottom: 9px; }
+      .skel.v { height: 30px; width: 42%; }
+      .skel.line { height: 13px; width: 100%; margin-bottom: 11px; }
+      .skel.line:nth-child(even) { width: 82%; }
+      .skel.block { height: 240px; width: 100%; }
+
+      .spinner {
+        width: 15px; height: 15px; border: 2.5px solid rgba(37, 99, 235, .25);
+        border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      .banner {
+        display: none; align-items: flex-start; gap: 11px;
+        padding: 14px; border-radius: 12px; margin-bottom: 14px;
+        font-size: 14.5px; animation: rise .25s ease both;
+      }
+      .banner.show { display: flex; }
+      .banner.err { background: var(--err-soft); border: 1px solid #fecaca; color: var(--err); }
+      .banner.warn { background: #fffbeb; border: 1px solid #fde68a; color: var(--warn); }
+      .banner strong { display: block; margin-bottom: 2px; }
+
+      label { display: block; font-size: 14px; font-weight: 600; margin: 0 0 6px; }
+      input {
+        width: 100%; font: inherit; font-size: 16px;
+        padding: 13px 14px; min-height: 50px;
+        border: 1px solid #cbd5e1; border-radius: 10px;
+        background: var(--surface); color: var(--ink);
+        transition: border-color .15s ease, box-shadow .15s ease;
+      }
+      input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
+      button.action {
+        width: 100%; font: inherit; font-size: 16px; font-weight: 700;
+        min-height: 54px; padding: 15px; border-radius: 12px; cursor: pointer;
+        border: 1px solid var(--accent); background: var(--accent); color: #fff;
+        display: flex; align-items: center; justify-content: center; gap: 9px;
+        margin-top: 12px;
+      }
+      button.action:active { transform: scale(.985); }
+
+      .readonly {
+        font-size: 12.5px; color: var(--muted); text-align: center;
+        margin: 18px 0 0; padding: 0 10px;
+      }
+      .hidden { display: none !important; }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ink: #e2e8f0; --muted: #94a3b8; --line: #334155;
+          --surface: #1e293b; --bg: #0f172a; --accent-soft: #1e3a5f;
+          --ok-soft: #14301f; --err-soft: #3b1618;
+        }
+        input { border-color: #475569; }
+        .banner.warn { background: #33270d; border-color: #78500f; color: #fcd34d; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="head-row">
+        <div>
+          <h1>Dashboard Stok</h1>
+          <p class="sub" id="sub">Memuat…</p>
+        </div>
+        <button class="refresh" id="refreshBtn" onclick="load(true)">
+          <span id="refreshIcon">&#8635;</span><span>Refresh</span>
+        </button>
+      </div>
+      <nav class="tabs hidden" id="nav">
+        <a class="tab" id="navInput" href="#">Input Stok</a>
+        <a class="tab" id="navDash" href="#" aria-selected="true">Dashboard</a>
+      </nav>
+    </header>
+
+    <main>
+      <div class="banner" id="banner"></div>
+
+      <!-- Shown only when the access code is wrong or not yet given -->
+      <div class="card hidden" id="unlock">
+        <h2>Kode Akses</h2>
+        <label for="kodeAkses">Masukkan kode akses untuk melihat dashboard</label>
+        <input id="kodeAkses" type="password" autocomplete="off" placeholder="••••"
+               onkeydown="if (event.key === 'Enter') unlock();">
+        <button class="action" onclick="unlock()">Buka Dashboard</button>
+      </div>
+
+      <div id="content">
+        <!-- Summary cards -->
+        <div class="cards" id="cards">
+          <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
+          <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
+          <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
+          <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts" id="charts">
+          <div class="card">
+            <h2>Proporsi Status</h2>
+            <div class="chart-box" id="pieBox"><div class="skel block"></div></div>
+          </div>
+          <div class="card">
+            <h2>10 Barang Stok Tersedikit</h2>
+            <div class="chart-box tall" id="barBox"><div class="skel block"></div></div>
+          </div>
+        </div>
+
+        <!-- Critical table -->
+        <div class="card">
+          <h2 id="kritisTitle">Perlu Restok Segera</h2>
+          <div id="kritisBody">
+            <div class="skel line"></div><div class="skel line"></div>
+            <div class="skel line"></div><div class="skel line"></div>
+          </div>
+        </div>
+
+        <p class="readonly">
+          Halaman ini hanya menampilkan data — tidak ada tombol ubah atau hapus di sini.
+          Untuk mengubah stok, pakai halaman Input Stok atau buka spreadsheet-nya langsung.
+        </p>
+      </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script>
+      var REFRESH_MS = 5 * 60 * 1000;   // auto-refresh tiap 5 menit
+      var KODE_KEY = 'stockManagerKode';
+      var DATA = null;
+      var pieChart = null, barChart = null;
+      var timer = null;
+      var loading = false;
+
+      function el(id) { return document.getElementById(id); }
+      function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+      function num(value) {
+        var n = Number(value);
+        if (!isFinite(n)) return '0';
+        return n.toLocaleString('id-ID');
+      }
+      function safeGet(key) {
+        try { return window.localStorage.getItem(key); } catch (e) { return null; }
+      }
+      function safeSet(key, value) {
+        try { window.localStorage.setItem(key, value); } catch (e) { /* mode privat */ }
+      }
+
+      function showBanner(kind, title, text) {
+        var b = el('banner');
+        b.className = 'banner show ' + kind;
+        b.innerHTML = '<div><strong>' + esc(title) + '</strong>' + esc(text) + '</div>';
+      }
+      function clearBanner() { el('banner').className = 'banner'; }
+
+      /* ---------- access code ---------- */
+
+      function showUnlock(message) {
+        el('unlock').classList.remove('hidden');
+        el('content').classList.add('hidden');
+        el('sub').textContent = 'Terkunci';
+        if (message) showBanner('err', 'Tidak bisa membuka dashboard', message);
+        el('kodeAkses').focus();
+      }
+
+      function unlock() {
+        var kode = el('kodeAkses').value;
+        safeSet(KODE_KEY, kode);
+        el('unlock').classList.add('hidden');
+        el('content').classList.remove('hidden');
+        clearBanner();
+        load(true);
+      }
+
+      /* ---------- loading ---------- */
+
+      function busy(on) {
+        loading = on;
+        el('refreshBtn').disabled = on;
+        el('refreshIcon').innerHTML = on ? '<span class="spinner"></span>' : '&#8635;';
+        if (on) el('sub').textContent = 'Memuat data…';
+      }
+
+      function load(manual) {
+        if (loading) return;
+        busy(true);
+        if (manual) clearBanner();
+
+        google.script.run
+          .withSuccessHandler(function (data) {
+            busy(false);
+            DATA = data;
+            render(data);
+          })
+          .withFailureHandler(function (err) {
+            busy(false);
+            var message = err && err.message ? err.message : String(err);
+            if (message.indexOf('Kode akses') !== -1) { showUnlock(message); return; }
+            el('sub').textContent = 'Gagal memuat';
+            showBanner('err', 'Gagal memuat data', message);
+          })
+          .getDashboardData({ kodeAkses: safeGet(KODE_KEY) || '' });
+      }
+
+      /* ---------- render ---------- */
+
+      function render(data) {
+        el('sub').textContent = 'Diperbarui ' + data.generatedAt + ' · sumber: ' + data.rekapSheet;
+        renderCards(data);
+        renderKritis(data);
+
+        if (data.kosong) {
+          showBanner('warn', 'Belum ada data barang', data.catatan);
+          destroyCharts();
+          el('charts').classList.add('hidden');
+          return;
+        }
+        el('charts').classList.remove('hidden');
+        renderCharts(data);
+      }
+
+      function renderCards(data) {
+        var s = data.summary;
+        var t = data.hariIni;
+        var aman = s.perluRestok === 0;
+
+        var lainnya = s.lainnya > 0
+          ? '<div class="n">' + num(s.lainnya) + ' belum ada status (' + esc(data.label.lainnya) + ')</div>'
+          : '';
+
+        el('cards').innerHTML =
+          '<div class="stat">' +
+            '<div class="k">Total Jenis Barang</div>' +
+            '<div class="v">' + num(s.totalBarang) + '</div>' + lainnya +
+          '</div>' +
+
+          '<div class="stat good">' +
+            '<div class="k">' + esc(data.label.aman) + '</div>' +
+            '<div class="v">' + num(s.aman) + '</div>' +
+            '<div class="n">dari ' + num(s.totalBarang) + ' jenis barang</div>' +
+          '</div>' +
+
+          '<div class="stat alert' + (aman ? ' clear' : '') + '">' +
+            '<div class="k">' + esc(data.label.perluRestok) + '</div>' +
+            '<div class="v">' + num(s.perluRestok) + '</div>' +
+            '<div class="n">' + (aman ? 'Semua stok di atas batas minimum.' : 'Barang yang stoknya sudah di batas minimum atau kurang.') + '</div>' +
+          '</div>' +
+
+          '<div class="stat">' +
+            '<div class="k">Transaksi Hari Ini</div>' +
+            '<div class="v">' + num(t.total.baris) + '</div>' +
+            '<div class="mini">' +
+              '<div><b>' + num(t.masuk.baris) + '</b>masuk</div>' +
+              '<div><b>' + num(t.retur.baris) + '</b>retur</div>' +
+              '<div><b>' + num(t.keluar.baris) + '</b>keluar</div>' +
+            '</div>' +
+          '</div>';
+      }
+
+      function renderKritis(data) {
+        var rows = data.kritis || [];
+        el('kritisTitle').textContent = 'Perlu Restok Segera' + (rows.length ? ' (' + rows.length + ')' : '');
+
+        if (rows.length === 0) {
+          el('kritisBody').innerHTML = data.kosong
+            ? '<div class="empty"><strong>Belum ada barang</strong>' + esc(data.catatan) + '</div>'
+            : '<div class="empty"><strong>Tidak ada yang perlu restok</strong>' +
+              'Semua barang stoknya masih di atas batas minimum.</div>';
+          return;
+        }
+
+        var body = rows.map(function (item) {
+          var gap = item.selisih;
+          return '<tr>' +
+            '<td class="kode">' + esc(item.kode) + '</td>' +
+            '<td>' + esc(item.nama) + '</td>' +
+            '<td class="num">' + num(item.sisaStok) + '</td>' +
+            '<td class="num">' + num(item.minStok) + '</td>' +
+            '<td class="num"><span class="gap' + (gap >= 0 ? ' ok' : '') + '">' +
+              (gap > 0 ? '+' : '') + num(gap) + '</span></td>' +
+          '</tr>';
+        }).join('');
+
+        el('kritisBody').innerHTML =
+          '<div class="scroll"><table>' +
+            '<thead><tr>' +
+              '<th>Kode</th><th>Nama</th><th class="num">Sisa Stok</th>' +
+              '<th class="num">Min Stok</th><th class="num">Selisih</th>' +
+            '</tr></thead>' +
+            '<tbody>' + body + '</tbody>' +
+          '</table></div>';
+      }
+
+      /* ---------- charts ---------- */
+
+      function destroyCharts() {
+        if (pieChart) { pieChart.destroy(); pieChart = null; }
+        if (barChart) { barChart.destroy(); barChart = null; }
+      }
+
+      function chartsUnavailable() {
+        el('pieBox').innerHTML = '<div class="empty">Grafik tidak bisa dimuat (koneksi ke CDN Chart.js gagal). Angka di atas dan tabel di bawah tetap akurat.</div>';
+        el('barBox').innerHTML = '<div class="empty">Grafik tidak bisa dimuat.</div>';
+      }
+
+      function renderCharts(data) {
+        if (typeof Chart === 'undefined') { chartsUnavailable(); return; }
+
+        destroyCharts();
+        var ink = getComputedStyle(document.body).getPropertyValue('color');
+        Chart.defaults.color = ink;
+        Chart.defaults.font.family = getComputedStyle(document.body).getPropertyValue('font-family');
+
+        // Donut: proportion of statuses. Chart.js draws a 0-value slice as
+        // nothing at all, so an all-safe warehouse still renders a full ring.
+        var s = data.summary;
+        var pieLabels = [data.label.aman, data.label.perluRestok];
+        var pieValues = [s.aman, s.perluRestok];
+        var pieColors = ['#22c55e', '#ef4444'];
+        if (s.lainnya > 0) {
+          pieLabels.push(data.label.lainnya);
+          pieValues.push(s.lainnya);
+          pieColors.push('#94a3b8');
+        }
+
+        el('pieBox').innerHTML = '<canvas id="pie"></canvas>';
+        pieChart = new Chart(el('pie'), {
+          type: 'doughnut',
+          data: {
+            labels: pieLabels,
+            datasets: [{ data: pieValues, backgroundColor: pieColors, borderWidth: 0, hoverOffset: 6 }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false, cutout: '58%',
+            plugins: {
+              legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14 } },
+              tooltip: {
+                callbacks: {
+                  label: function (ctx) {
+                    var total = pieValues.reduce(function (a, b) { return a + b; }, 0);
+                    var pct = total ? Math.round(ctx.parsed / total * 100) : 0;
+                    return ' ' + ctx.label + ': ' + ctx.parsed + ' (' + pct + '%)';
+                  }
+                }
+              }
+            }
+          }
+        });
+
+        // Horizontal bar so long item names stay readable.
+        var top = data.stokTersedikit || [];
+        if (top.length === 0) {
+          el('barBox').innerHTML = '<div class="empty">Belum ada barang untuk ditampilkan.</div>';
+          return;
+        }
+
+        el('barBox').innerHTML = '<canvas id="bar"></canvas>';
+        barChart = new Chart(el('bar'), {
+          type: 'bar',
+          data: {
+            labels: top.map(function (i) {
+              var nama = i.nama || i.kode;
+              return nama.length > 26 ? nama.slice(0, 25) + '…' : nama;
+            }),
+            datasets: [{
+              label: 'Sisa Stok',
+              data: top.map(function (i) { return i.sisaStok; }),
+              backgroundColor: top.map(function (i) {
+                return i.statusKey === 'perluRestok' ? '#ef4444' : '#2563eb';
+              }),
+              borderRadius: 5, borderSkipped: false
+            }]
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  title: function (ctx) { return top[ctx[0].dataIndex].kode + ' — ' + top[ctx[0].dataIndex].nama; },
+                  label: function (ctx) {
+                    var item = top[ctx.dataIndex];
+                    var extra = item.sisaDus ? ' (' + item.sisaDus + ')' : '';
+                    return ' Sisa ' + item.sisaStok + extra + ' · min ' + item.minStok;
+                  }
+                }
+              }
+            },
+            scales: {
+              x: { beginAtZero: true, grid: { color: 'rgba(148,163,184,.22)' }, ticks: { precision: 0 } },
+              y: { grid: { display: false } }
+            }
+          }
+        });
+      }
+
+      /* ---------- nav + auto refresh ---------- */
+
+      function loadNav() {
+        google.script.run
+          .withSuccessHandler(function (nav) {
+            if (!nav || !nav.input) return;   // bukan web app ter-deploy
+            el('navInput').href = nav.input;
+            el('navDash').href = nav.dashboard;
+            el('nav').classList.remove('hidden');
+          })
+          .withFailureHandler(function () { /* nav opsional */ })
+          .getWebAppNav();
+      }
+
+      function startAutoRefresh() {
+        if (timer) clearInterval(timer);
+        timer = setInterval(function () {
+          if (!document.hidden) load(false);
+        }, REFRESH_MS);
+      }
+
+      // Kalau tab-nya lama tidak dilihat, segarkan begitu dibuka lagi.
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && DATA) load(false);
+      });
+
+      loadNav();
+      load(true);
+      startAutoRefresh();
+    </script>
+  </body>
+</html>

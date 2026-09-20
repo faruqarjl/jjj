@@ -51,6 +51,19 @@
       }
       .tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
 
+      /* Page nav (Input <-> Dashboard), above the in-page tabs */
+      .pagenav { display: flex; gap: 4px; margin-bottom: 10px; }
+      .pagenav a {
+        flex: 1; text-align: center; text-decoration: none;
+        font-size: 13px; font-weight: 600; color: var(--muted);
+        padding: 9px 6px; border: 1px solid var(--line); border-radius: 9px;
+        transition: color .18s ease, border-color .18s ease, background .18s ease;
+      }
+      .pagenav a[aria-selected="true"] {
+        color: var(--accent-dark); border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+
       main { padding: 16px; max-width: 560px; margin: 0 auto; }
 
       .card {
@@ -176,6 +189,10 @@
     <header>
       <h1>Input Stok</h1>
       <p class="sub" id="sub">Memuat…</p>
+      <nav class="pagenav hidden" id="pagenav">
+        <a id="navInput" href="#" aria-selected="true">Input Stok</a>
+        <a id="navDash" href="#">Dashboard</a>
+      </nav>
       <div class="tabs" role="tablist">
         <button class="tab" role="tab" aria-selected="true" onclick="showTab('manual')" id="tabManual">Input Manual</button>
         <button class="tab" role="tab" aria-selected="false" onclick="showTab('batch')" id="tabBatch">Batch Invoice</button>
@@ -351,6 +368,21 @@
           })
           .withFailureHandler(function (err) { showErr(err.message); })
           .getWebAppData();
+      }
+
+      // Link ke halaman Dashboard (Fase 8B). URL-nya diambil dari server
+      // karena halaman ini dirender di dalam iframe sandbox — link relatif
+      // akan mengarah ke host sandbox, bukan ke web app-nya.
+      function loadNav() {
+        google.script.run
+          .withSuccessHandler(function (nav) {
+            if (!nav || !nav.input) return;
+            el('navInput').href = nav.input;
+            el('navDash').href = nav.dashboard;
+            el('pagenav').classList.remove('hidden');
+          })
+          .withFailureHandler(function () { /* nav opsional */ })
+          .getWebAppNav();
       }
 
       function safeGet(key) {
@@ -534,6 +566,7 @@
       el('tanggal').value = today();
       el('bTanggal').value = today();
       addItem();
+      loadNav();
       load();
     </script>
   </body>

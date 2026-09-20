@@ -29,11 +29,14 @@ adapting to a different layout means editing Config values, not the script.
   handlers that call into `Transaksi.gs`.
 - `src/Transaksi.gs` — generic input logic shared by all three transaction
   sheets: `appendRow()`, `batchInsert()`, `sortByDate()`, `applyBorders()`.
-- `src/WebApp.gs` — the web app form's server side: `doGet()`,
-  `getWebAppData()`, `submitWebAppInput()`, `submitWebAppBatch()`. Every
-  submit goes through `appendRowLogged()`/`batchInsertLogged()`, so it wraps
-  the existing logic instead of duplicating it.
+- `src/WebApp.gs` — the web app's server side: `doGet()` (routes both pages),
+  `getWebAppData()`, `submitWebAppInput()`, `submitWebAppBatch()`,
+  `getWebAppNav()`, and the read-only `getDashboardData()`. Every submit goes
+  through `appendRowLogged()`/`batchInsertLogged()`, so it wraps the existing
+  logic instead of duplicating it.
 - `src/WebAppInput.html` — the mobile input form served by `doGet()`.
+- `src/WebDashboard.html` — the read-only dashboard (Fase 8B), served by the
+  same `doGet()` under `?page=dashboard`.
 
 ## Config sheet
 
@@ -204,7 +207,55 @@ If you need genuine authentication, the deployment has to change to "Anyone
 with a Google account", which means every member of staff signs in — the exact
 thing this setup was chosen to avoid.
 
-## Next phase
+## Fase 8B — Read-only dashboard
 
-Fase 8B: dashboard. Not started — blocked until Fase 8A is approved and tested
-on a live spreadsheet.
+`?page=dashboard` on the same web app URL. Summary cards, a status donut, a
+horizontal bar chart of the ten lowest-stock items, and the full reorder
+table — nothing on the page writes anything.
+
+### One deployment, two pages
+
+`doGet(e)` routes on `?page=`: `dashboard` serves `WebDashboard`, anything
+else (including no parameter at all) serves the input form. One URL means one
+deployment to redeploy, one access code, and one link to hand out. Both pages
+carry a nav row linking to the other; the URLs come from `getWebAppNav()`
+because HtmlService renders inside a sandboxed iframe, where a relative
+`?page=dashboard` would resolve against the sandbox host instead of the web
+app.
+
+The dashboard is behind the same `webapp_kode_akses` as the form — stock
+levels are no less sensitive than the ability to add a row. The page asks for
+the code once and keeps it in `localStorage`.
+
+### It reads, it does not recompute
+
+`getDashboardData()` takes `SISA STOK`, `SISA DUS` and `STATUS` from
+`REKAP BARANG` exactly as `recalculateRekap()` left them, and only aggregates
+(counts, sorts, a subtraction for the reorder gap). There is no second copy
+of the stock formula, so the dashboard cannot drift from the spreadsheet.
+Status labels come from `status_teks_*`, so `SAFE`/`REORDER` works as well as
+`AMAN`/`PERLU RESTOK`.
+
+Today's activity is counted by formatting each transaction date to
+`yyyy-MM-dd` in the spreadsheet's own time zone and comparing days, so a row
+entered at 09:00 and one at 17:00 both land on today.
+
+Cost is one `getValues()` per sheet regardless of how many items exist — 120
+items read no more than 12 do.
+
+### Degrading instead of breaking
+
+| Situation | What the page does |
+|---|---|
+| `REKAP BARANG` empty or missing | Cards show zeros, a banner names the sheet and says how to add items |
+| Nothing needs reordering | The alert card turns green, the table says so, the donut still renders |
+| Everything needs reordering | The safe slice is simply absent from the donut |
+| A transaction sheet missing | That sheet counts 0; the others still count |
+| Chart.js CDN blocked | Charts are replaced with a note; cards and table stay accurate |
+
+Charts come from `cdn.jsdelivr.net` (Chart.js 4.4.1), so the page needs
+outbound internet — an offline machine gets the numbers but not the graphs.
+
+Auto-refresh runs every 5 minutes, skipped while the tab is hidden and
+triggered again when it becomes visible, so a dashboard left on an office
+tablet stays current without hammering the script.
