@@ -73,15 +73,15 @@ function onEdit(e) {
 }
 
 function filterRekapSemua() {
-  notify_('Filter Rekap Barang', filterRekapByStatus(FILTER_SEMUA).message);
+  showFilterViewResult_(filterRekapByStatus(FILTER_SEMUA));
 }
 
 function filterRekapAman() {
-  notify_('Filter Rekap Barang', filterRekapByStatus(FILTER_AMAN).message);
+  showFilterViewResult_(filterRekapByStatus(FILTER_AMAN));
 }
 
 function filterRekapPerluRestok() {
-  notify_('Filter Rekap Barang', filterRekapByStatus(FILTER_PERLU_RESTOK).message);
+  showFilterViewResult_(filterRekapByStatus(FILTER_PERLU_RESTOK));
 }
 
 /** Menu handler: recalculates every item in REKAP BARANG, then reports totals. */

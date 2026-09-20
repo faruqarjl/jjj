@@ -109,26 +109,53 @@ function normalizeColorHex_(colorHex) {
  * Filter REKAP BARANG by STATUS
  * ------------------------------------------------------------------ */
 
+const FILTER_VIEW_TITLES = {};
+FILTER_VIEW_TITLES[FILTER_AMAN] = 'Stock Manager - Hanya Aman';
+FILTER_VIEW_TITLES[FILTER_PERLU_RESTOK] = 'Stock Manager - Hanya Perlu Restok';
+
 /**
- * Shows only the REKAP BARANG rows whose STATUS matches: "SEMUA" (clears
- * the filter), "AMAN", or "PERLU_RESTOK".
+ * Shows only the REKAP BARANG rows whose STATUS matches: "AMAN",
+ * "PERLU_RESTOK", or "SEMUA" to go back to the unfiltered sheet.
  *
- * This is a basic filter, which every viewer of the spreadsheet shares —
- * SpreadsheetApp cannot create a per-user Filter View; that needs the
- * Sheets Advanced Service. Hiding rows here therefore hides them for
- * everyone with the file open.
+ * Uses Filter Views (Sheets Advanced Service) rather than a basic filter,
+ * because a basic filter is shared: one person hiding rows hides them for
+ * everyone with the file open. A Filter View's definition is shared, but
+ * each viewer activates it independently.
+ *
+ * Nothing here can activate a view in someone's browser — the API has no
+ * such call — so the result carries a URL that opens the sheet with the
+ * view applied, for the person who clicks it and nobody else. "SEMUA"
+ * likewise returns the plain sheet URL: leaving a view is per-user too, so
+ * deleting the saved views would instead yank them out from under whoever
+ * else has one open.
  */
 function filterRekapByStatus(status) {
   const pilihan = normalizeText_(status).toUpperCase().replace(/\s+/g, '_');
+  assertSheetsAdvancedServiceEnabled_();
+
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   const sheetName = getConfigValue('sheet_rekap_barang');
   const table = getTableInfo_(sheetName);
+  const sheetId = table.sheet.getSheetId();
 
-  const existing = table.sheet.getFilter();
-  if (existing) existing.remove();
+  // An earlier build created a basic filter here. It is shared, so it would
+  // keep hiding rows for everyone regardless of the view chosen.
+  const basicFilter = table.sheet.getFilter();
+  if (basicFilter) {
+    basicFilter.remove();
+    Logger.log('filterRekapByStatus(): basic filter lama dihapus (dulu shared antar user).');
+  }
+
+  const sheetUrl = spreadsheet.getUrl() + '#gid=' + sheetId;
 
   if (pilihan === FILTER_SEMUA) {
-    Logger.log('filterRekapByStatus(): filter dihapus, semua baris ditampilkan.');
-    return { status: FILTER_SEMUA, message: 'Filter dihapus. Semua baris REKAP BARANG ditampilkan.' };
+    Logger.log('filterRekapByStatus(): kembali ke tampilan tanpa filter view.');
+    return {
+      status: FILTER_SEMUA,
+      url: sheetUrl,
+      message: 'Buka link ini untuk keluar dari filter view dan melihat semua baris lagi. ' +
+        'Filter view yang tersimpan tidak dihapus, supaya rekan lain yang sedang memakainya tidak terganggu.'
+    };
   }
 
   const nilai = pilihan === FILTER_AMAN ? STATUS_AMAN
@@ -142,24 +169,119 @@ function filterRekapByStatus(status) {
   }
 
   const statusColumn = getColumnIndex(sheetName, getConfig().col_rekap_status, table.headerRow);
-  const rowCount = table.sheet.getLastRow() - table.headerRow + 1;
-  if (rowCount < 2) {
-    return { status: pilihan, message: 'Belum ada data di REKAP BARANG untuk difilter.' };
+  const title = FILTER_VIEW_TITLES[pilihan];
+
+  const filterView = {
+    title: title,
+    range: {
+      sheetId: sheetId,
+      startRowIndex: table.headerRow - 1,
+      endRowIndex: table.sheet.getLastRow(),
+      startColumnIndex: 0,
+      endColumnIndex: table.width
+    },
+    criteria: {}
+  };
+  // Criteria keys are zero-based column indexes, as strings.
+  filterView.criteria[String(statusColumn - 1)] = {
+    condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: nilai }] }
+  };
+
+  const existing = findManagedFilterView_(spreadsheet.getId(), sheetId, title);
+  let filterViewId;
+
+  if (existing) {
+    filterView.filterViewId = existing.filterViewId;
+    Sheets.Spreadsheets.batchUpdate(
+      { requests: [{ updateFilterView: { filter: filterView, fields: 'range,criteria,title' } }] },
+      spreadsheet.getId()
+    );
+    filterViewId = existing.filterViewId;
+    Logger.log('filterRekapByStatus("%s"): filter view %s diperbarui.', pilihan, filterViewId);
+  } else {
+    const response = Sheets.Spreadsheets.batchUpdate(
+      { requests: [{ addFilterView: { filter: filterView } }] },
+      spreadsheet.getId()
+    );
+    filterViewId = response.replies[0].addFilterView.filter.filterViewId;
+    Logger.log('filterRekapByStatus("%s"): filter view %s dibuat.', pilihan, filterViewId);
   }
 
-  const filter = table.sheet.getRange(table.headerRow, 1, rowCount, table.width).createFilter();
-  filter.setColumnFilterCriteria(
-    statusColumn,
-    SpreadsheetApp.newFilterCriteria().whenTextEqualTo(nilai).build()
-  );
+  return {
+    status: pilihan,
+    filterViewId: filterViewId,
+    url: sheetUrl + '&fvid=' + filterViewId,
+    message: 'Filter view "' + title + '" siap (hanya STATUS "' + nilai + '"). ' +
+      'Buka link di bawah untuk memakainya — filter ini hanya berlaku untuk Anda, ' +
+      'rekan lain tetap melihat tampilan mereka sendiri.'
+  };
+}
 
-  Logger.log('filterRekapByStatus("%s"): kolom %s difilter ke "%s".', pilihan, statusColumn, nilai);
-  return { status: pilihan, message: 'REKAP BARANG difilter: hanya STATUS "' + nilai + '".' };
+/** The filter view this script manages for one status, or null. */
+function findManagedFilterView_(spreadsheetId, sheetId, title) {
+  const spreadsheet = Sheets.Spreadsheets.get(spreadsheetId, {
+    fields: 'sheets(properties/sheetId,filterViews(filterViewId,title))'
+  });
+
+  const sheet = (spreadsheet.sheets || []).filter(function (s) {
+    return s.properties.sheetId === sheetId;
+  })[0];
+  if (!sheet || !sheet.filterViews) return null;
+
+  return sheet.filterViews.filter(function (view) {
+    return normalizeText_(view.title) === title;
+  })[0] || null;
+}
+
+function assertSheetsAdvancedServiceEnabled_() {
+  if (typeof Sheets === 'undefined') {
+    throw new Error(
+      'Sheets Advanced Service belum aktif, jadi filter view per-user tidak bisa dibuat.\n\n' +
+      'Cara mengaktifkan: buka editor Apps Script > panel kiri "Services" (ikon +) > ' +
+      'pilih "Google Sheets API" > Add. Biarkan Identifier-nya "Sheets" dan Version "v4". ' +
+      'Setelah itu jalankan menu ini lagi.'
+    );
+  }
 }
 
 /* ------------------------------------------------------------------ *
  * Colour picker sidebar
  * ------------------------------------------------------------------ */
+
+/**
+ * Shows a filter result with its URL as a clickable link. An alert() can't
+ * be clicked, and the link is the whole point — activating a filter view is
+ * something only the viewer's own browser can do.
+ * Falls back to the log when there is no UI context.
+ */
+function showFilterViewResult_(result) {
+  const body =
+    '<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.55;color:#202124">' +
+    '<p style="margin:0 0 14px">' + escapeHtml_(result.message) + '</p>' +
+    '<p style="margin:0 0 14px">' +
+    '<a href="' + escapeHtml_(result.url) + '" target="_blank" rel="noopener" ' +
+    'style="display:inline-block;padding:9px 14px;background:#1a73e8;color:#fff;' +
+    'text-decoration:none;border-radius:3px;font-weight:bold">Buka di tab baru</a></p>' +
+    '<p style="margin:0;font-size:11px;color:#5f6368">' +
+    'Bisa juga lewat menu Google Sheets: Data &gt; Filter views.</p></div>';
+
+  try {
+    SpreadsheetApp.getUi().showModalDialog(
+      HtmlService.createHtmlOutput(body).setWidth(430).setHeight(210),
+      'Filter Rekap Barang'
+    );
+  } catch (err) {
+    Logger.log('Filter Rekap Barang — %s\n%s', result.message, result.url);
+  }
+}
+
+function escapeHtml_(text) {
+  return String(text === null || text === undefined ? '' : text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 function showColorPicker() {
   const html = HtmlService.createHtmlOutputFromFile('ColorPicker').setTitle('Warnai Transaksi');
