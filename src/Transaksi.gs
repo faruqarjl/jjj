@@ -14,6 +14,7 @@
  */
 function appendRow(sheetName, rowDataObject) {
   const table = getTableInfo_(sheetName);
+  normalizeMergedCells_(table);
   const rowValues = new Array(table.width).fill('');
 
   Object.keys(rowDataObject).forEach(function (columnHeaderName) {
@@ -96,6 +97,7 @@ function batchInsert(sheetName, arrayOfRowDataObjects) {
   }
 
   const table = getTableInfo_(sheetName);
+  normalizeMergedCells_(table);
   const columnIndexByHeader = buildColumnIndexMap_(sheetName, arrayOfRowDataObjects, table.headerRow);
 
   const rows = arrayOfRowDataObjects.map(function (rowDataObject) {
@@ -181,22 +183,139 @@ function sortByDate(sheetName) {
 
   const table = getTableInfo_(sheetName);
   const dateColumnIndex = getColumnIndex(sheetName, dateColumnName, table.headerRow);
-
-  const lastRow = table.sheet.getLastRow();
-  const dataRowCount = lastRow - table.headerRow;
+  const dataRowCount = table.sheet.getLastRow() - table.headerRow;
 
   Logger.log(
     'sortByDate("%s"): headerRow=%s dataRows=%s sortColumn=%s',
     sheetName, table.headerRow, dataRowCount, dateColumnIndex
   );
 
-  if (dataRowCount > 0) {
-    const dataRange = table.sheet.getRange(table.firstDataRow, 1, dataRowCount, table.width);
-    dataRange.sort({ column: dateColumnIndex, ascending: false });
-    renumberNoColumn_(table);
+  if (dataRowCount < 1) {
+    applyBorders(sheetName);
+    return 0;
   }
 
+  normalizeMergedCells_(table);
+
+  const dataRange = table.sheet.getRange(table.firstDataRow, 1, dataRowCount, table.width);
+  const sorted = sortRowsByDateDesc_(dataRange.getValues(), dateColumnIndex - 1);
+
+  const noIndex = findNoColumnIndex_(table.headers);
+  if (noIndex !== -1) {
+    sorted.forEach(function (row, i) {
+      row[noIndex] = i + 1;
+    });
+  }
+
+  dataRange.setValues(sorted);
   applyBorders(sheetName);
+  return sorted.length;
+}
+
+/**
+ * Orders rows newest-first by `dateIndex` (0-based) in plain JavaScript.
+ * Rows whose date cell can't be read as a date sink to the bottom. Ties and
+ * unreadable dates keep their original relative order — the original index
+ * is the explicit tiebreaker rather than relying on sort stability.
+ */
+function sortRowsByDateDesc_(rows, dateIndex) {
+  return rows
+    .map(function (row, i) {
+      return { row: row, i: i, key: toTimeValue_(row[dateIndex]) };
+    })
+    .sort(function (a, b) {
+      if (a.key === null || b.key === null) {
+        if (a.key === null && b.key === null) return a.i - b.i;
+        return a.key === null ? 1 : -1;
+      }
+      if (a.key !== b.key) return b.key - a.key;
+      return a.i - b.i;
+    })
+    .map(function (entry) {
+      return entry.row;
+    });
+}
+
+/** Comparable time value for a date cell, or null when it isn't a date. */
+function toTimeValue_(value) {
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return isNaN(time) ? null : time;
+  }
+  if (typeof value === 'number' && isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const time = new Date(value).getTime();
+    if (!isNaN(time)) return time;
+  }
+  return null;
+}
+
+function findNoColumnIndex_(headers) {
+  return headers.findIndex(function (header) {
+    return String(header).trim().toUpperCase() === 'NO';
+  });
+}
+
+/**
+ * Breaks every merge inside the table's data rows and refills the freed
+ * cells with the merge's value, so unmerging leaves no blanks. Sheets
+ * imported from Excel carry vertical merges (typically in NO or INVOICE)
+ * that make both range.sort() and setValues() fail.
+ *
+ * A merge starting above the first data row is refused rather than broken:
+ * spreading a header cell's text down into data rows would corrupt data, so
+ * it's named for manual fixing instead. Returns how many merges were broken.
+ */
+function normalizeMergedCells_(table) {
+  const lastRow = table.sheet.getLastRow();
+  const dataRowCount = lastRow - table.headerRow;
+  if (dataRowCount < 1) return 0;
+
+  const dataRange = table.sheet.getRange(table.firstDataRow, 1, dataRowCount, table.width);
+  const merges = dataRange.getMergedRanges();
+  if (merges.length === 0) {
+    Logger.log('normalizeMergedCells_("%s"): no merged cells.', table.sheet.getName());
+    return 0;
+  }
+
+  const blocking = merges.filter(function (merged) {
+    return merged.getRow() < table.firstDataRow;
+  });
+  if (blocking.length > 0) {
+    throw new Error(
+      'Ada merge yang melewati baris header di sheet "' + table.sheet.getName() + '": ' +
+      blocking.map(function (m) { return m.getA1Notation(); }).join(', ') +
+      '. Unmerge manual dulu — script sengaja tidak membongkarnya otomatis supaya isi ' +
+      'header tidak tertulis ke baris data.'
+    );
+  }
+
+  merges.forEach(function (merged) {
+    const value = merged.getCell(1, 1).getValue();
+    const startRow = merged.getRow();
+    const startColumn = merged.getColumn();
+    const numRows = Math.min(startRow + merged.getNumRows() - 1, lastRow) - startRow + 1;
+    const numColumns = Math.min(startColumn + merged.getNumColumns() - 1, table.width) - startColumn + 1;
+
+    Logger.log(
+      'normalizeMergedCells_(): breaking %s, refilling with %s',
+      merged.getA1Notation(), JSON.stringify(value)
+    );
+    merged.breakApart();
+
+    if (numRows < 1 || numColumns < 1) return;
+    const filled = [];
+    for (let r = 0; r < numRows; r++) {
+      const row = [];
+      for (let c = 0; c < numColumns; c++) row.push(value);
+      filled.push(row);
+    }
+    table.sheet.getRange(startRow, startColumn, numRows, numColumns).setValues(filled);
+  });
+
+  return merges.length;
 }
 
 /** Maps a transaction sheet to its Config column-key prefix ("masuk" or "keluar"). */
@@ -217,22 +336,6 @@ function resolveColumnPrefix_(sheetName, config) {
  * per-sheet business field, so it's detected by header text directly
  * instead of adding config keys nothing else needs.
  */
-function renumberNoColumn_(table) {
-  const noColumnIndex = table.headers.findIndex(function (header) {
-    return String(header).trim().toUpperCase() === 'NO';
-  });
-  if (noColumnIndex === -1) return;
-
-  const dataRowCount = table.sheet.getLastRow() - table.headerRow;
-  if (dataRowCount < 1) return;
-
-  const numbers = [];
-  for (let i = 1; i <= dataRowCount; i++) {
-    numbers.push([i]);
-  }
-  table.sheet.getRange(table.firstDataRow, noColumnIndex + 1, numbers.length, 1).setValues(numbers);
-}
-
 /**
  * Applies a thin grid border to the table of `sheetName` — the header row
  * down to the last data row, across the table's width only. Title/blank
