@@ -203,14 +203,18 @@ function sortKeluarAsc() {
 }
 
 /**
- * Ensures the Config and Panduan sheets exist, creating them with defaults
- * if this is a fresh copy of the template. Safe to run repeatedly.
+ * Creates the Config and ActionLog sheets if missing, backfills any Config
+ * key added by a later version, then regenerates Panduan. Safe to run
+ * repeatedly — and worth re-running after editing Config, since Panduan's
+ * key table is built from whatever Config currently holds.
  */
 function runSetup() {
   const configCreated = ensureConfigSheet();
-  const panduanCreated = ensurePanduanSheet_();
   const actionLogCreated = ensureActionLogSheet();
   const addedKeys = configCreated ? [] : backfillConfigSheet();
+
+  // Last, so the key table it prints reflects the backfill that just ran.
+  const panduanCreated = rebuildPanduanSheet_();
 
   const created = [];
   if (configCreated) created.push('Config');
@@ -224,58 +228,207 @@ function runSetup() {
   if (addedKeys.length > 0) {
     messages.push('Key baru ditambahkan ke Config:\n' + addedKeys.join('\n'));
   }
-  if (messages.length === 0) {
-    messages.push('Sheet Config, Panduan dan ActionLog sudah lengkap. Tidak ada yang diubah.');
-  }
+  messages.push('Sheet Panduan dibuat ulang sesuai isi Config saat ini.');
 
   notify_('Setup', messages.join('\n\n'));
 }
 
-function ensurePanduanSheet_() {
+/**
+ * Rewrites the Panduan sheet from scratch on every Setup.
+ *
+ * The Config key table is generated from the live Config sheet rather than
+ * typed out here, so it can never drift from what the script actually
+ * reads — including keys a business adds itself. Because it is generated,
+ * anything hand-written on this sheet is replaced; edit Config, not Panduan.
+ *
+ * Returns true when the sheet had to be created.
+ */
+function rebuildPanduanSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (ss.getSheetByName(PANDUAN_SHEET_NAME)) {
-    return false;
-  }
+  let sheet = ss.getSheetByName(PANDUAN_SHEET_NAME);
+  const created = !sheet;
+  if (!sheet) sheet = ss.insertSheet(PANDUAN_SHEET_NAME);
 
-  const lines = [
-    ['PANDUAN PENGGUNAAN — STOCK MANAGER TEMPLATE'],
-    [''],
-    ['1. APA ITU SHEET "Config"?'],
-    ['Satu-satunya sumber nama sheet dan nama kolom yang dipakai script ini.'],
-    ['Kolom A = Key (JANGAN diubah), Kolom B = Value (SILAKAN diubah sesuai spreadsheet Anda).'],
-    ['Contoh: key "sheet_barang_masuk" -> value "BARANG MASUK" adalah nama sheet transaksi masuk.'],
-    [''],
-    ['2. CARA DUPLICATE KE SPREADSHEET LAIN'],
-    ['a. File > Make a Copy di spreadsheet ini.'],
-    ['b. Di spreadsheet hasil copy, buka sheet Config.'],
-    ['c. Ganti kolom Value (bukan Key) sesuai nama sheet & nama kolom di spreadsheet baru.'],
-    ['d. Selesai — TIDAK PERLU edit kode sama sekali. Semua function baca dari Config.'],
-    [''],
-    ['3. KALAU URUTAN KOLOM BERBEDA'],
-    ['Tidak masalah. getColumnIndex() mencari kolom berdasarkan teks header,'],
-    ['bukan berdasarkan nomor/urutan kolom — asalkan teks header di Value Config'],
-    ['cocok dengan header asli di sheet tersebut.'],
-    [''],
-    ['3b. KALAU BARIS HEADER BUKAN DI ROW 1'],
-    ['Sheet yang punya judul/baris kosong di atas tabel diatur lewat key:'],
-    ['header_row_masuk, header_row_retur, header_row_keluar, header_row_rekap.'],
-    ['Isi dengan nomor baris tempat header kolom berada (contoh: 5 atau 6).'],
-    ['Data baru selalu ditambahkan di bawah baris data terakhir, dan sort'],
-    ['hanya menyentuh baris data — judul di atas header tidak ikut teracak.'],
-    [''],
-    ['4. CACHE'],
-    ['getConfig() menyimpan hasil bacaan di cache supaya hemat kuota & lebih cepat.'],
-    ['Cache otomatis dibersihkan begitu Anda mengedit sheet Config (lewat trigger onEdit).'],
-    ['Kalau perlu membersihkan manual, jalankan function clearConfigCache() di Apps Script editor.'],
-    [''],
-    ['5. MENU "Stock Manager > Setup"'],
-    ['Aman dijalankan berkali-kali. Kalau sheet Config atau Panduan terhapus, menu ini akan'],
-    ['membuat ulang dengan isi default.']
+  const rows = []
+    .concat(panduanIntro_())
+    .concat(panduanDuplicateSteps_())
+    .concat(panduanConfigTable_())
+    .concat(panduanMenuTable_())
+    .concat(panduanLimitations_())
+    .concat(panduanFormulas_());
+
+  sheet.clear();
+  sheet.getRange(1, 1, rows.length, 3).setValues(rows);
+
+  sheet.getRange(1, 1).setFontSize(14).setFontWeight('bold');
+  sheet.setColumnWidth(1, 260);
+  sheet.setColumnWidth(2, 220);
+  sheet.setColumnWidth(3, 460);
+  sheet.getRange(1, 1, rows.length, 3).setVerticalAlignment('top').setWrap(true);
+
+  // Bold every section heading, which is the rows whose column A is a
+  // numbered title and whose other columns are empty.
+  rows.forEach(function (row, i) {
+    if (/^[0-9]+\. /.test(String(row[0])) && row[1] === '' && row[2] === '') {
+      sheet.getRange(i + 1, 1, 1, 3).setFontWeight('bold');
+    }
+  });
+
+  Logger.log('rebuildPanduanSheet_(): %s baris ditulis.', rows.length);
+  return created;
+}
+
+function panduanIntro_() {
+  const stamp = Utilities.formatDate(
+    new Date(),
+    SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || 'Asia/Jakarta',
+    'dd/MM/yyyy HH:mm'
+  );
+  return [
+    ['PANDUAN STOCK MANAGER', '', ''],
+    ['Dibuat ulang otomatis setiap kali menu Setup dijalankan. Terakhir: ' + stamp, '', ''],
+    ['Jangan mengetik apa pun di sheet ini — isinya akan ditimpa. Yang diubah adalah sheet Config.', '', ''],
+    ['', '', '']
+  ];
+}
+
+function panduanDuplicateSteps_() {
+  return [
+    ['1. CARA PAKAI DI BISNIS / SPREADSHEET LAIN', '', ''],
+    ['a. File > Make a Copy', '', 'Salin spreadsheet ini beserta script-nya.'],
+    ['b. Sesuaikan sheet Config', '', 'Ganti kolom Value (JANGAN kolom Key) supaya cocok dengan nama sheet dan nama kolom di file baru. Nama sheet, nama kolom, baris header, teks STATUS — semuanya diatur dari sini.'],
+    ['c. Jalankan Stock Manager > Setup', '', 'Menambahkan key yang belum ada (backfill) dan membuat ulang Panduan ini sesuai Config yang baru.'],
+    ['d. Uji 1 baris', '', 'Stock Manager > Input Manual, lalu cek barisnya masuk di tempat yang benar dan REKAP ikut berubah. Kalau ada kolom yang tidak ketemu, pesan errornya menyebutkan nama kolom yang dicari beserta header yang benar-benar ada.'],
+    ['', '', '']
+  ];
+}
+
+/**
+ * The Config key table, read from the live sheet. Keys in the default order
+ * first, then anything extra the spreadsheet added on its own.
+ */
+function panduanConfigTable_() {
+  const config = getConfig();
+  const ordered = DEFAULT_CONFIG_ENTRIES.map(function (entry) { return entry[0]; });
+  const extras = Object.keys(config).filter(function (key) {
+    return ordered.indexOf(key) === -1;
+  });
+
+  const rows = [
+    ['2. DAFTAR KEY DI SHEET CONFIG', '', ''],
+    ['Key', 'Value sekarang', 'Fungsi']
   ];
 
-  const sheet = ss.insertSheet(PANDUAN_SHEET_NAME);
-  sheet.getRange(1, 1, lines.length, 1).setValues(lines).setWrap(true);
-  sheet.getRange(1, 1).setFontWeight('bold').setFontSize(13);
-  sheet.setColumnWidth(1, 700);
-  return true;
+  ordered.concat(extras).forEach(function (key) {
+    if (!Object.prototype.hasOwnProperty.call(config, key)) return;
+    rows.push([key, String(config[key]), describeConfigKey_(key)]);
+  });
+
+  rows.push(['', '', '']);
+  return rows;
+}
+
+const CONFIG_KEY_NOTES = {
+  sheet_barang_masuk: 'Nama sheet transaksi barang masuk.',
+  sheet_barang_retur: 'Nama sheet retur (barang kembali ke gudang — menambah stok).',
+  sheet_barang_keluar: 'Nama sheet barang keluar / penjualan.',
+  sheet_rekap_barang: 'Nama sheet rekap stok per barang.',
+  status_teks_aman: 'Teks yang ditulis ke kolom STATUS saat stok masih aman.',
+  status_teks_perlu_restok: 'Teks STATUS saat sisa stok <= min stok.',
+  status_teks_na: 'Teks saat STATUS atau SISA DUS tidak bisa dihitung (min stok / isi per dus kosong).'
+};
+
+const CONFIG_FIELD_NOTES = {
+  tgl: 'tanggal', kode: 'kode barang', nama: 'nama barang', jumlah: 'jumlah',
+  keterangan: 'keterangan', invoice: 'nomor invoice', no: 'nomor urut baris',
+  stok_awal: 'stok awal', min_stok: 'batas minimum stok', sisa_stok: 'sisa stok',
+  sisa_dus: 'sisa dalam dus/pack', status: 'status stok', masuk: 'total barang masuk',
+  retur: 'total retur', keluar: 'total barang keluar',
+  isi_pack: 'isi per pack', isi_dus: 'isi per dus'
+};
+
+const CONFIG_SHEET_LABELS = {
+  masuk: 'BARANG MASUK', retur: 'BARANG RETUR',
+  keluar: 'BARANG KELUAR', rekap: 'REKAP BARANG'
+};
+
+/**
+ * A description for one Config key. Derived from the key's shape when it
+ * isn't in the notes map, so a key added later still documents itself.
+ */
+function describeConfigKey_(key) {
+  if (CONFIG_KEY_NOTES[key]) return CONFIG_KEY_NOTES[key];
+
+  const column = /^col_(masuk|retur|keluar|rekap)_(.+)$/.exec(key);
+  if (column) {
+    const sheet = CONFIG_SHEET_LABELS[column[1]] || column[1];
+    const field = CONFIG_FIELD_NOTES[column[2]] || column[2].replace(/_/g, ' ');
+    return 'Nama kolom ' + field + ' di sheet ' + sheet + '.';
+  }
+
+  const headerRow = /^header_row_(.+)$/.exec(key);
+  if (headerRow) {
+    const sheet = CONFIG_SHEET_LABELS[headerRow[1]] || headerRow[1];
+    return 'Nomor baris tempat header kolom berada di sheet ' + sheet +
+      ' (isi angka, contoh 5). Baris data dianggap mulai tepat di bawahnya.';
+  }
+
+  return 'Key tambahan milik spreadsheet ini.';
+}
+
+/**
+ * Menu reference. Written by hand rather than derived from onOpen(), which
+ * stays untouched because it is the entry point everything else depends on
+ * — so update this list when a menu item changes.
+ */
+function panduanMenuTable_() {
+  const items = [
+    ['Setup', 'Membuat/melengkapi sheet Config, Panduan, ActionLog. Aman dijalankan berulang.'],
+    ['Input Manual', 'Menambah 1 baris contoh ke sheet barang masuk — dipakai untuk menguji sambungan Config.'],
+    ['Input Batch (Invoice)', 'Menambah 3 baris contoh ke barang keluar dengan satu nomor invoice.'],
+    ['Urutkan Tanggal >', 'Urutkan tiap sheet transaksi, terbaru ke terlama atau sebaliknya. Nomor urut ikut dirapikan.'],
+    ['Hapus Baris', 'Menghapus satu baris (diminta nomor barisnya). Nomor urut dirapikan, rekap ikut dihitung ulang.'],
+    ['Edit Rekap Barang', 'Sidebar untuk menambah atau mengubah data barang di sheet rekap.'],
+    ['Refresh Semua Status', 'Menghitung ulang seluruh isi sheet rekap sekaligus.'],
+    ['Warnai Transaksi', 'Sidebar untuk mewarnai baris di sheet transaksi. Sheet rekap tidak bisa diwarnai manual.'],
+    ['Filter Rekap Barang >', 'Membuat filter view per-user: Semua / Hanya Aman / Hanya Perlu Restok.'],
+    ['Export Data', 'Dialog export PDF atau Excel ke folder Drive "Export", dengan filter tanggal opsional.'],
+    ['Undo Terakhir', 'Membatalkan aksi terakhir yang tercatat di sheet ActionLog.'],
+    ['Redo', 'Menjalankan ulang aksi yang barusan dibatalkan.'],
+    ['Debug Config', 'Menampilkan isi Config apa adanya — dipakai kalau ada key yang tidak terbaca.'],
+    ['Clear Cache Config', 'Membersihkan cache Config supaya perubahan langsung terbaca.']
+  ];
+
+  const rows = [['3. MENU "STOCK MANAGER"', '', ''], ['Menu', '', 'Fungsi']];
+  items.forEach(function (item) { rows.push([item[0], '', item[1]]); });
+  rows.push(['', '', '']);
+  return rows;
+}
+
+function panduanLimitations_() {
+  const items = [
+    ['Filter view tidak aktif otomatis', 'Script hanya bisa membuat/memperbarui filter view. Mengaktifkannya hanya bisa dilakukan browser masing-masing, jadi menunya menampilkan link yang harus diklik. Butuh Sheets Advanced Service aktif.'],
+    ['Export minta izin di awal', 'Pemakaian pertama meminta izin akses Drive dan koneksi eksternal. Wajib di-Allow, kalau tidak export gagal.'],
+    ['Refresh Semua Status makan waktu', 'Sudah dioptimasi jadi sekali baca per sheet (bukan per barang), tapi katalog yang sangat besar tetap perlu waktu. Progres dicatat tiap 50 barang di log.'],
+    ['Merge cell dibongkar permanen', 'Sort pertama kali akan meng-unmerge sel yang ter-merge di area data dan mengisi ulang nilainya. Ini tidak bisa dibatalkan — salin dulu spreadsheet sebelum sort pertama.'],
+    ['Undo hanya 50 aksi terakhir', 'ActionLog menyimpan maksimal 50 aksi aktif; yang paling lama terhapus lebih dulu (FIFO).'],
+    ['Tabel harus mulai dari kolom A', 'Semua baca/tulis dimulai dari kolom A selebar tabel. Tabel yang mulai dari kolom C belum didukung.'],
+    ['Struktur 4 sheet itu tetap', 'Script mengenal masuk, retur, keluar, dan rekap. Menambah sheet transaksi kelima perlu perubahan kode.'],
+    ['Baris data tepat di bawah header', 'Tidak boleh ada baris pemisah atau subtotal di antara header dan baris data pertama.'],
+    ['Label menu & judul sidebar tetap', 'Beberapa teks tampilan masih memakai istilah asli (mis. nama sheet di label submenu Urutkan). Fungsinya tetap mengikuti Config, hanya tulisannya yang tidak ikut berubah.']
+  ];
+
+  const rows = [['4. BATASAN YANG DIKETAHUI', '', ''], ['Batasan', '', 'Penjelasan']];
+  items.forEach(function (item) { rows.push([item[0], '', item[1]]); });
+  rows.push(['', '', '']);
+  return rows;
+}
+
+function panduanFormulas_() {
+  return [
+    ['5. RUMUS YANG DIPAKAI', '', ''],
+    ['SISA STOK', '', 'STOK AWAL + MASUK + RETUR - KELUAR. Retur menambah stok (barang kembali dari pelanggan).'],
+    ['SISA DUS', '', 'dus = SISA STOK dibagi ISI PER DUS (dibulatkan ke bawah); sisanya dibagi ISI PER PACK. Ditulis sebagai teks "{dus} DUS {pack}PACK".'],
+    ['STATUS', '', 'Perlu restok bila SISA STOK <= MIN STOK, selain itu aman. Teksnya diatur lewat key status_teks_*.']
+  ];
 }
