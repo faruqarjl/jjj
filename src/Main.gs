@@ -17,6 +17,11 @@ function onOpen() {
     .addItem('BARANG KELUAR - Terbaru ke Terlama', 'sortKeluarDesc')
     .addItem('BARANG KELUAR - Terlama ke Terbaru', 'sortKeluarAsc');
 
+  const filterMenu = ui.createMenu('Filter Rekap Barang')
+    .addItem('Tampilkan Semua', 'filterRekapSemua')
+    .addItem('Hanya Aman', 'filterRekapAman')
+    .addItem('Hanya Perlu Restok', 'filterRekapPerluRestok');
+
   ui.createMenu('Stock Manager')
     .addItem('Setup', 'runSetup')
     .addSeparator()
@@ -27,6 +32,9 @@ function onOpen() {
     .addItem('Hapus Baris', 'promptDeleteRow')
     .addItem('Edit Rekap Barang', 'showRekapForm')
     .addItem('Refresh Semua Status', 'refreshSemuaStatus')
+    .addSeparator()
+    .addItem('Warnai Transaksi', 'showColorPicker')
+    .addSubMenu(filterMenu)
     .addSeparator()
     .addItem('Undo Terakhir', 'undoLastAction')
     .addItem('Redo', 'redoAction')
@@ -62,6 +70,18 @@ function onEdit(e) {
   } catch (err) {
     Logger.log('onEdit() -> handleTransaksiEdit_ failed: %s', err.message);
   }
+}
+
+function filterRekapSemua() {
+  notify_('Filter Rekap Barang', filterRekapByStatus(FILTER_SEMUA).message);
+}
+
+function filterRekapAman() {
+  notify_('Filter Rekap Barang', filterRekapByStatus(FILTER_AMAN).message);
+}
+
+function filterRekapPerluRestok() {
+  notify_('Filter Rekap Barang', filterRekapByStatus(FILTER_PERLU_RESTOK).message);
 }
 
 /** Menu handler: recalculates every item in REKAP BARANG, then reports totals. */

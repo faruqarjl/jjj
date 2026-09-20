@@ -327,6 +327,10 @@ function revertAction_(entry) {
       }
       break;
 
+    case AKSI_COLORIZE:
+      applyRowColors_(entry.sheetName, entry.rowIndex, entry.beforeState.colors);
+      break;
+
     default:
       throw new Error('Jenis aksi "' + entry.actionType + '" tidak dikenal.');
   }
@@ -356,6 +360,10 @@ function replayAction_(entry) {
       } else {
         restoreRow_(entry.sheetName, entry.rowIndex, entry.afterState.row);
       }
+      break;
+
+    case AKSI_COLORIZE:
+      applyRowColors_(entry.sheetName, entry.rowIndex, entry.afterState.colors);
       break;
 
     default:

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; margin: 0; padding: 12px; }
+      h2 { font-size: 14px; margin: 0 0 12px; }
+      fieldset { border: 1px solid #ccc; border-radius: 4px; margin: 0 0 12px; padding: 8px 10px 10px; }
+      legend { font-weight: bold; padding: 0 4px; }
+      label { display: block; margin: 8px 0 3px; font-weight: bold; }
+      input, select { width: 100%; box-sizing: border-box; font-size: 13px; padding: 6px;
+                      border: 1px solid #bbb; border-radius: 3px; }
+
+      .palette { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 6px; }
+      .swatch {
+        border: 2px solid transparent; border-radius: 4px; padding: 14px 4px 4px;
+        cursor: pointer; text-align: center; font-size: 11px; color: #202124;
+      }
+      .swatch.selected { border-color: #1a73e8; font-weight: bold; }
+
+      .hexRow { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+      .hexRow input { flex: 1; }
+      #preview { width: 34px; height: 30px; border: 1px solid #bbb; border-radius: 3px; flex: none; }
+
+      button {
+        width: 100%; box-sizing: border-box; margin-top: 8px; padding: 9px;
+        font-size: 13px; font-weight: bold; cursor: pointer; border-radius: 3px;
+      }
+      #apply { border: 1px solid #1a73e8; background: #1a73e8; color: #fff; }
+      #clear { border: 1px solid #bbb; background: #f1f3f4; color: #202124; }
+      button:disabled { opacity: .6; cursor: default; }
+
+      #status { margin-top: 10px; padding: 8px; border-radius: 3px; display: none; white-space: pre-wrap; }
+      #status.ok { display: block; background: #e6f4ea; color: #137333; }
+      #status.err { display: block; background: #fce8e6; color: #c5221f; }
+      #status.info { display: block; background: #e8f0fe; color: #1967d2; }
+      .note { margin-top: 10px; font-size: 11px; color: #5f6368; line-height: 1.4; }
+    </style>
+  </head>
+  <body>
+    <h2>Warnai Baris Transaksi</h2>
+
+    <fieldset>
+      <legend>Target</legend>
+      <label for="sheet">Sheet</label>
+      <select id="sheet"><option value="">Memuat…</option></select>
+
+      <label for="row">Nomor Baris</label>
+      <input id="row" type="number" min="1" step="1" placeholder="contoh: 12">
+    </fieldset>
+
+    <fieldset>
+      <legend>Warna</legend>
+      <div id="palette" class="palette"></div>
+
+      <div class="hexRow">
+        <input id="hex" type="text" placeholder="#FFD966" autocomplete="off">
+        <div id="preview"></div>
+      </div>
+    </fieldset>
+
+    <button id="apply" onclick="applyColor()">Apply Warna</button>
+    <button id="clear" onclick="clearColor()">Hapus Warna</button>
+    <div id="status"></div>
+
+    <p class="note">
+      REKAP BARANG tidak ada di daftar: warna barisnya dipakai STATUS dan akan
+      ditimpa tiap kali rekap dihitung ulang.
+      Salah warna? Pakai <b>Stock Manager &gt; Undo Terakhir</b>.
+    </p>
+
+    <script>
+      function el(id) { return document.getElementById(id); }
+
+      function setStatus(text, kind) {
+        var box = el('status');
+        box.textContent = text;
+        box.className = kind || '';
+      }
+
+      function setHex(value) {
+        el('hex').value = value || '';
+        el('preview').style.background = value || 'transparent';
+        var swatches = document.querySelectorAll('.swatch');
+        for (var i = 0; i < swatches.length; i++) {
+          var match = swatches[i].dataset.hex.toUpperCase() === String(value || '').toUpperCase();
+          swatches[i].className = match ? 'swatch selected' : 'swatch';
+        }
+      }
+
+      function buildPalette(presets) {
+        var box = el('palette');
+        box.innerHTML = '';
+        presets.forEach(function (preset) {
+          var cell = document.createElement('div');
+          cell.className = 'swatch';
+          cell.dataset.hex = preset.hex;
+          cell.style.background = preset.hex;
+          cell.textContent = preset.nama;
+          cell.onclick = function () { setHex(preset.hex); setStatus('', ''); };
+          box.appendChild(cell);
+        });
+      }
+
+      function load() {
+        google.script.run
+          .withSuccessHandler(function (data) {
+            var select = el('sheet');
+            select.innerHTML = '';
+            data.sheets.forEach(function (name) {
+              var option = document.createElement('option');
+              option.value = name;
+              option.textContent = name;
+              if (name === data.activeSheet) option.selected = true;
+              select.appendChild(option);
+            });
+            buildPalette(data.presets);
+            setHex(data.presets[0].hex);
+          })
+          .withFailureHandler(function (err) {
+            setStatus('Gagal memuat: ' + err.message, 'err');
+          })
+          .getColorPickerData();
+      }
+
+      function send(colorHex) {
+        var sheetName = el('sheet').value;
+        var rowIndex = el('row').value;
+
+        if (!sheetName) { setStatus('Pilih sheet dulu.', 'err'); return; }
+        if (!String(rowIndex).trim()) { setStatus('Isi nomor baris dulu.', 'err'); return; }
+
+        el('apply').disabled = true;
+        el('clear').disabled = true;
+        setStatus('Memproses…', 'info');
+
+        google.script.run
+          .withSuccessHandler(function (result) {
+            el('apply').disabled = false;
+            el('clear').disabled = false;
+            setStatus(result.message, 'ok');
+          })
+          .withFailureHandler(function (err) {
+            el('apply').disabled = false;
+            el('clear').disabled = false;
+            setStatus(err.message, 'err');
+          })
+          .colorizeRow(sheetName, rowIndex, colorHex);
+      }
+
+      function applyColor() { send(el('hex').value); }
+      function clearColor() { send(''); }
+
+      el('hex').addEventListener('input', function () {
+        el('preview').style.background = el('hex').value || 'transparent';
+      });
+
+      load();
+    </script>
+  </body>
+</html>
