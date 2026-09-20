@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; margin: 0; padding: 14px;
+             color: #202124; }
+      fieldset { border: 1px solid #ccc; border-radius: 4px; margin: 0 0 12px; padding: 8px 10px 12px; }
+      legend { font-weight: bold; padding: 0 4px; }
+      label { display: block; margin: 8px 0 3px; font-weight: bold; }
+      select, input { width: 100%; box-sizing: border-box; font-size: 13px; padding: 6px;
+                      border: 1px solid #bbb; border-radius: 3px; }
+
+      .formats { display: flex; gap: 16px; margin-top: 4px; }
+      .formats label { display: flex; align-items: center; gap: 6px; font-weight: normal; margin: 0; }
+      .formats input { width: auto; }
+
+      .dates { display: flex; gap: 10px; }
+      .dates > div { flex: 1; }
+      .hint { margin: 6px 0 0; font-size: 11px; color: #5f6368; line-height: 1.4; }
+
+      button { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 10px;
+               font-size: 13px; font-weight: bold; cursor: pointer; border-radius: 3px;
+               border: 1px solid #1a73e8; background: #1a73e8; color: #fff; }
+      button:disabled { opacity: .6; cursor: default; }
+
+      #status { margin-top: 12px; padding: 10px; border-radius: 3px; display: none;
+                white-space: pre-wrap; line-height: 1.5; }
+      #status.ok { display: block; background: #e6f4ea; color: #137333; }
+      #status.err { display: block; background: #fce8e6; color: #c5221f; }
+      #status.info { display: block; background: #e8f0fe; color: #1967d2; }
+
+      #result { display: none; margin-top: 10px; }
+      #result a { display: inline-block; padding: 9px 14px; background: #188038; color: #fff;
+                  text-decoration: none; border-radius: 3px; font-weight: bold; }
+
+      .spinner { display: inline-block; width: 12px; height: 12px; margin-right: 7px;
+                 border: 2px solid #c6dafc; border-top-color: #1967d2; border-radius: 50%;
+                 vertical-align: -2px; animation: spin .8s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .disabledBox { opacity: .45; }
+    </style>
+  </head>
+  <body>
+    <fieldset>
+      <legend>Sumber Data</legend>
+      <label for="sheet">Sheet</label>
+      <select id="sheet"><option value="">Memuat…</option></select>
+    </fieldset>
+
+    <fieldset>
+      <legend>Format</legend>
+      <div class="formats">
+        <label><input type="radio" name="format" value="pdf" checked> PDF</label>
+        <label><input type="radio" name="format" value="xlsx"> Excel (.xlsx)</label>
+      </div>
+    </fieldset>
+
+    <fieldset id="dateBox">
+      <legend>Filter Tanggal (opsional)</legend>
+      <div class="dates">
+        <div>
+          <label for="from">Dari</label>
+          <input id="from" type="date">
+        </div>
+        <div>
+          <label for="to">Sampai</label>
+          <input id="to" type="date">
+        </div>
+      </div>
+      <p class="hint" id="dateHint">Kosongkan keduanya untuk meng-export semua data.</p>
+    </fieldset>
+
+    <button id="run" onclick="startExport()">Export Sekarang</button>
+    <div id="status"></div>
+    <div id="result"><a id="link" href="#" target="_blank" rel="noopener">Buka file hasil export</a></div>
+
+    <script>
+      var sheets = [];
+
+      function el(id) { return document.getElementById(id); }
+      function format() { return document.querySelector('input[name="format"]:checked').value; }
+
+      function setStatus(html, kind) {
+        var box = el('status');
+        box.innerHTML = html;
+        box.className = kind || '';
+      }
+
+      function showResult(url) {
+        el('link').href = url;
+        el('result').style.display = 'block';
+      }
+
+      function currentSheet() {
+        var name = el('sheet').value;
+        return sheets.filter(function (s) { return s.name === name; })[0];
+      }
+
+      // REKAP BARANG has no date column, so its filter is switched off.
+      function syncDateAvailability() {
+        var sheet = currentSheet();
+        var allowed = !!(sheet && sheet.hasDateColumn);
+
+        el('from').disabled = !allowed;
+        el('to').disabled = !allowed;
+        el('dateBox').className = allowed ? '' : 'disabledBox';
+        el('dateHint').textContent = allowed
+          ? 'Kosongkan keduanya untuk meng-export semua data.'
+          : 'Sheet ini tidak punya kolom tanggal, jadi filter tanggal tidak berlaku.';
+
+        if (!allowed) { el('from').value = ''; el('to').value = ''; }
+      }
+
+      function load() {
+        google.script.run
+          .withSuccessHandler(function (data) {
+            sheets = data.sheets || [];
+            var select = el('sheet');
+            select.innerHTML = '';
+            sheets.forEach(function (sheet) {
+              var option = document.createElement('option');
+              option.value = sheet.name;
+              option.textContent = sheet.name;
+              if (sheet.name === data.activeSheet) option.selected = true;
+              select.appendChild(option);
+            });
+            syncDateAvailability();
+          })
+          .withFailureHandler(function (err) {
+            setStatus('Gagal memuat daftar sheet: ' + err.message, 'err');
+          })
+          .getExportDialogData();
+      }
+
+      function startExport() {
+        var payload = {
+          sheetName: el('sheet').value,
+          format: format(),
+          dateRangeStart: el('from').disabled ? '' : el('from').value,
+          dateRangeEnd: el('to').disabled ? '' : el('to').value
+        };
+
+        if (!payload.sheetName) { setStatus('Pilih sheet dulu.', 'err'); return; }
+
+        el('run').disabled = true;
+        el('result').style.display = 'none';
+        setStatus(
+          '<span class="spinner"></span>Sedang memproses… data besar bisa makan waktu ' +
+          'sampai satu menit. Jangan tutup dialog ini.', 'info');
+
+        google.script.run
+          .withSuccessHandler(function (result) {
+            el('run').disabled = false;
+            setStatus(result.message, 'ok');
+            showResult(result.url);
+          })
+          .withFailureHandler(function (err) {
+            el('run').disabled = false;
+            setStatus(err.message, 'err');
+          })
+          .runExport(payload);
+      }
+
+      el('sheet').addEventListener('change', function () {
+        syncDateAvailability();
+        setStatus('', '');
+        el('result').style.display = 'none';
+      });
+
+      load();
+    </script>
+  </body>
+</html>

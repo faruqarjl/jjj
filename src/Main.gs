@@ -36,6 +36,8 @@ function onOpen() {
     .addItem('Warnai Transaksi', 'showColorPicker')
     .addSubMenu(filterMenu)
     .addSeparator()
+    .addItem('Export Data', 'showExportDialog')
+    .addSeparator()
     .addItem('Undo Terakhir', 'undoLastAction')
     .addItem('Redo', 'redoAction')
     .addSeparator()
