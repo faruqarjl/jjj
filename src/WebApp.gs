@@ -275,19 +275,35 @@ function webAppDate_(value) {
 }
 
 /* ------------------------------------------------------------------ *
- * Dashboard (Fase 8B) — read-only
+ * Dashboard (Fase 8B + 8C) — read-only
  *
- * Nothing below writes anything. It reads REKAP BARANG as recalculateRekap()
- * already left it and aggregates; SISA STOK, SISA DUS and STATUS are taken
- * from the sheet verbatim rather than recomputed, so the dashboard can never
- * disagree with the spreadsheet.
+ * Nothing below writes anything. Stock figures are read from REKAP BARANG
+ * exactly as recalculateRekap() left them; revenue is read from the amount
+ * columns of the outgoing sheet exactly as they are typed. PRICE and the
+ * DISKON columns are never recomputed — an amount cell already carries its
+ * discount, so recomputing it would be a second, competing formula.
  * ------------------------------------------------------------------ */
 
+const DASHBOARD_TOP_N = 10;
+const DASHBOARD_WEEKS_DEFAULT = 8;
+const DASHBOARD_TANPA_SALES = '(Tanpa Sales)';
+
+/** The time ranges the dashboard toggle offers, in order. */
+const DASHBOARD_RANGES = [
+  { id: 'hari', label: 'Hari Ini' },
+  { id: 'minggu', label: 'Minggu Ini' },
+  { id: 'bulan', label: 'Bulan Ini' },
+  { id: 'semua', label: 'Semua' }
+];
+
 /**
- * Everything the dashboard renders, in one call. payload: { kodeAkses }.
+ * Everything the dashboard renders, in one call.
+ * payload: { kodeAkses, rentang } — rentang is one of DASHBOARD_RANGES.
  *
- * Guarded by the same access code as the input form — stock levels are no
- * less sensitive than the ability to add a row.
+ * The range drives transaction counts and revenue, which are historical.
+ * It deliberately does NOT drive the stock cards: SISA STOK is the position
+ * right now, and the sheet holds no record of what stock was last Tuesday,
+ * so a "stock as of last week" figure could only be invented.
  */
 function getDashboardData(payload) {
   const request = payload || {};
@@ -295,14 +311,21 @@ function getDashboardData(payload) {
 
   const config = getConfig();
   const texts = statusTexts_();
+  const timeZone = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
   const rekapSheetName = normalizeText_(config.sheet_rekap_barang);
+
   const items = readDashboardItems_(rekapSheetName, config);
+  const periode = resolveDashboardRange_(request.rentang, timeZone);
+
+  // One read per transaction sheet, reused for the counts, the revenue and
+  // the trend — so the cost does not grow with the number of rows or with
+  // how many things the page shows.
+  const sheets = readAllTransactionRows_(config, timeZone);
 
   const aman = items.filter(function (item) { return item.statusKey === 'aman'; });
   const perluRestok = items.filter(function (item) { return item.statusKey === 'perluRestok'; });
   const lainnya = items.filter(function (item) { return item.statusKey === 'lainnya'; });
 
-  // Most urgent first: furthest below its reorder point.
   const kritis = perluRestok.slice().sort(function (a, b) {
     return a.selisih - b.selisih || a.sisaStok - b.sisaStok;
   });
@@ -315,6 +338,8 @@ function getDashboardData(payload) {
     generatedAt: formatDashboardTime_(new Date()),
     rekapSheet: rekapSheetName,
     label: { aman: texts.aman, perluRestok: texts.perluRestok, lainnya: texts.tidakDiketahui },
+    rentangPilihan: DASHBOARD_RANGES,
+    periode: periode,
     summary: {
       totalBarang: items.length,
       aman: aman.length,
@@ -323,7 +348,9 @@ function getDashboardData(payload) {
     },
     stokTersedikit: stokTersedikit,
     kritis: kritis,
-    hariIni: getDashboardToday_(config),
+    transaksi: summariseTransactions_(sheets, periode),
+    omset: summariseOmset_(sheets.keluar, periode),
+    tren: buildOmsetTrend_(sheets.keluar, periode, config),
     kosong: items.length === 0,
     catatan: items.length === 0
       ? 'Sheet "' + rekapSheetName + '" belum berisi barang. Tambahkan barang lewat ' +
@@ -332,7 +359,9 @@ function getDashboardData(payload) {
   };
 }
 
-const DASHBOARD_TOP_N = 10;
+/* ------------------------------------------------------------------ *
+ * Stock side (unchanged from Fase 8B)
+ * ------------------------------------------------------------------ */
 
 /**
  * One read of REKAP BARANG, mapped through the Config column names.
@@ -393,67 +422,62 @@ function readDashboardItems_(sheetName, config) {
     });
 }
 
+/* ------------------------------------------------------------------ *
+ * Time ranges
+ * ------------------------------------------------------------------ */
+
 /**
- * Today's activity across the three transaction sheets: how many rows were
- * recorded and how many units they move. A sheet this business doesn't have
- * is reported as zero rather than failing the whole dashboard.
+ * Turns the requested range id into concrete day boundaries.
+ *
+ * Days are compared as yyyy-MM-dd strings in the spreadsheet's own time
+ * zone, so a row typed at 09:00 and one at 17:00 fall on the same day and
+ * no timestamp arithmetic can drift across a zone boundary.
+ *
+ * "Minggu Ini" and "Bulan Ini" are calendar ranges (Monday–Sunday, and the
+ * 1st to the end of the month), not rolling windows — that is what a
+ * weekly or monthly figure means on a report. A row dated tomorrow
+ * therefore counts in "Minggu Ini" while not counting in "Hari Ini".
  */
-function getDashboardToday_(config) {
-  const timeZone = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
-  const today = dashboardDayKey_(new Date(), timeZone);
+function resolveDashboardRange_(requested, timeZone) {
+  const wanted = normalizeText_(requested).toLowerCase();
+  const chosen = DASHBOARD_RANGES.filter(function (range) { return range.id === wanted; })[0]
+    || DASHBOARD_RANGES[0];
 
-  const result = { tanggal: today, masuk: null, retur: null, keluar: null, total: { baris: 0, jumlah: 0 } };
+  const todayKey = dashboardDayKey_(new Date(), timeZone);
+  const today = civilDateOf_(todayKey);
 
-  ['masuk', 'retur', 'keluar'].forEach(function (jenis) {
-    const sheetName = normalizeText_(config['sheet_barang_' + jenis]);
-    const counted = countRowsForDay_(sheetName, today, timeZone, config);
-    result[jenis] = counted;
-    result.total.baris += counted.baris;
-    result.total.jumlah += counted.jumlah;
-  });
+  let dari = todayKey;
+  let sampai = todayKey;
 
-  return result;
+  if (chosen.id === 'minggu') {
+    // getDay(): 0 = Minggu. Geser ke Senin sebagai awal minggu.
+    const offset = (today.getDay() + 6) % 7;
+    const senin = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset);
+    dari = civilKeyOf_(senin);
+    sampai = civilKeyOf_(new Date(senin.getFullYear(), senin.getMonth(), senin.getDate() + 6));
+  } else if (chosen.id === 'bulan') {
+    dari = civilKeyOf_(new Date(today.getFullYear(), today.getMonth(), 1));
+    sampai = civilKeyOf_(new Date(today.getFullYear(), today.getMonth() + 1, 0));
+  } else if (chosen.id === 'semua') {
+    dari = '';
+    sampai = '';
+  }
+
+  return {
+    id: chosen.id,
+    label: chosen.label,
+    dari: dari,
+    sampai: sampai,
+    hariIni: todayKey,
+    semua: chosen.id === 'semua'
+  };
 }
 
-/** Rows and quantity on one sheet whose date column falls on `dayKey`. */
-function countRowsForDay_(sheetName, dayKey, timeZone, config) {
-  const empty = { sheet: sheetName, baris: 0, jumlah: 0, terbaca: false };
-  if (sheetName === '') return empty;
-  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName)) return empty;
-
-  let table;
-  try {
-    table = getTableInfo_(sheetName);
-  } catch (err) {
-    Logger.log('countRowsForDay_(): "%s" tidak terbaca — %s', sheetName, err.message);
-    return empty;
-  }
-
-  const rowCount = table.sheet.getLastRow() - table.headerRow;
-  if (rowCount < 1) return { sheet: sheetName, baris: 0, jumlah: 0, terbaca: true };
-
-  let tglIndex, jumlahIndex;
-  try {
-    tglIndex = resolveColumnIndex_(
-      table.headers, columnNameFor_(sheetName, 'tgl', config), sheetName, table.headerRow) - 1;
-    jumlahIndex = resolveColumnIndex_(
-      table.headers, columnNameFor_(sheetName, 'jumlah', config), sheetName, table.headerRow) - 1;
-  } catch (err) {
-    Logger.log('countRowsForDay_(): kolom TGL/JUMLAH "%s" tidak ketemu — %s', sheetName, err.message);
-    return empty;
-  }
-
-  const values = table.sheet.getRange(table.firstDataRow, 1, rowCount, table.width).getValues();
-  let baris = 0;
-  let jumlah = 0;
-
-  values.forEach(function (row) {
-    if (dashboardDayKey_(row[tglIndex], timeZone) !== dayKey) return;
-    baris++;
-    jumlah += toNumber_(row[jumlahIndex]);
-  });
-
-  return { sheet: sheetName, baris: baris, jumlah: jumlah, terbaca: true };
+/** True when a row's day falls inside the period. */
+function withinDashboardRange_(dayKey, periode) {
+  if (periode.semua) return dayKey !== '';
+  if (dayKey === '') return false;
+  return dayKey >= periode.dari && dayKey <= periode.sampai;
 }
 
 /**
@@ -465,6 +489,272 @@ function dashboardDayKey_(value, timeZone) {
   const time = toTimeValue_(value);
   if (time === null) return '';
   return Utilities.formatDate(new Date(time), timeZone, 'yyyy-MM-dd');
+}
+
+/**
+ * A day key as a plain local Date, used only for calendar arithmetic
+ * (which Monday, which month). The key is already time-zone resolved, so
+ * treating it as a civil date here cannot shift it.
+ */
+function civilDateOf_(dayKey) {
+  const parts = String(dayKey).split('-');
+  return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+}
+
+function civilKeyOf_(date) {
+  const pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate());
+}
+
+/* ------------------------------------------------------------------ *
+ * Transaction sheets — read once, used for counts, revenue and trend
+ * ------------------------------------------------------------------ */
+
+function readAllTransactionRows_(config, timeZone) {
+  return {
+    masuk: readTransactionRows_('masuk', config, timeZone),
+    retur: readTransactionRows_('retur', config, timeZone),
+    keluar: readTransactionRows_('keluar', config, timeZone)
+  };
+}
+
+/**
+ * One sheet's rows reduced to what the dashboard needs: which day, how many
+ * units, how much money and whose sale. Revenue and sales columns are
+ * optional — a business without them simply reports no revenue.
+ */
+function readTransactionRows_(jenis, config, timeZone) {
+  const sheetName = normalizeText_(config['sheet_barang_' + jenis]);
+  const empty = { sheet: sheetName, terbaca: false, rows: [], kolomOmset: [], adaOmset: false };
+
+  if (sheetName === '') return empty;
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName)) return empty;
+
+  let table;
+  try {
+    table = getTableInfo_(sheetName);
+  } catch (err) {
+    Logger.log('readTransactionRows_(): "%s" tidak terbaca — %s', sheetName, err.message);
+    return empty;
+  }
+
+  let tglIndex, jumlahIndex;
+  try {
+    tglIndex = resolveColumnIndex_(
+      table.headers, columnNameFor_(sheetName, 'tgl', config), sheetName, table.headerRow) - 1;
+    jumlahIndex = resolveColumnIndex_(
+      table.headers, columnNameFor_(sheetName, 'jumlah', config), sheetName, table.headerRow) - 1;
+  } catch (err) {
+    Logger.log('readTransactionRows_(): kolom TGL/JUMLAH "%s" tidak ketemu — %s', sheetName, err.message);
+    return empty;
+  }
+
+  const omsetColumns = resolveOmsetColumns_(sheetName, table, config);
+  const salesIndex = resolveOptionalColumn_(sheetName, table, 'sales', config);
+
+  const rowCount = table.sheet.getLastRow() - table.headerRow;
+  const result = {
+    sheet: sheetName,
+    terbaca: true,
+    rows: [],
+    kolomOmset: omsetColumns.map(function (column) { return column.nama; }),
+    adaOmset: omsetColumns.length > 0
+  };
+  if (rowCount < 1) return result;
+
+  const values = table.sheet.getRange(table.firstDataRow, 1, rowCount, table.width).getValues();
+
+  result.rows = values.map(function (row) {
+    const perKolom = {};
+    let omset = 0;
+    omsetColumns.forEach(function (column) {
+      const nilai = toNumber_(row[column.index]);
+      perKolom[column.nama] = nilai;
+      omset += nilai;
+    });
+
+    return {
+      dayKey: dashboardDayKey_(row[tglIndex], timeZone),
+      jumlah: toNumber_(row[jumlahIndex]),
+      omset: omset,
+      perKolom: perKolom,
+      sales: salesIndex === -1 ? '' : normalizeText_(row[salesIndex])
+    };
+  });
+
+  return result;
+}
+
+/**
+ * The money columns named by col_<sheet>_omset, which may list several
+ * separated by commas. A column named in Config but absent from the sheet
+ * is logged and skipped rather than failing the whole dashboard.
+ */
+function resolveOmsetColumns_(sheetName, table, config) {
+  const raw = normalizeText_(columnNameFor_(sheetName, 'omset', config));
+  if (raw === '') return [];
+
+  const columns = [];
+  raw.split(',').forEach(function (part) {
+    const nama = normalizeText_(part);
+    if (nama === '') return;
+    try {
+      columns.push({
+        nama: nama,
+        index: resolveColumnIndex_(table.headers, nama, sheetName, table.headerRow) - 1
+      });
+    } catch (err) {
+      Logger.log('resolveOmsetColumns_(): kolom omset "%s" tidak ada di "%s" — dilewati.', nama, sheetName);
+    }
+  });
+  return columns;
+}
+
+/** A column index, or -1 when the key is blank or the column is absent. */
+function resolveOptionalColumn_(sheetName, table, field, config) {
+  const nama = normalizeText_(columnNameFor_(sheetName, field, config));
+  if (nama === '') return -1;
+  try {
+    return resolveColumnIndex_(table.headers, nama, sheetName, table.headerRow) - 1;
+  } catch (err) {
+    Logger.log('resolveOptionalColumn_(): kolom "%s" tidak ada di "%s" — dilewati.', nama, sheetName);
+    return -1;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Aggregation
+ * ------------------------------------------------------------------ */
+
+/** Row and unit counts per sheet for the selected period. */
+function summariseTransactions_(sheets, periode) {
+  const result = { periode: periode.id, masuk: null, retur: null, keluar: null,
+                   total: { baris: 0, jumlah: 0 } };
+
+  ['masuk', 'retur', 'keluar'].forEach(function (jenis) {
+    const source = sheets[jenis];
+    const counted = { sheet: source.sheet, baris: 0, jumlah: 0, terbaca: source.terbaca };
+
+    source.rows.forEach(function (row) {
+      if (!withinDashboardRange_(row.dayKey, periode)) return;
+      counted.baris++;
+      counted.jumlah += row.jumlah;
+    });
+
+    result[jenis] = counted;
+    result.total.baris += counted.baris;
+    result.total.jumlah += counted.jumlah;
+  });
+
+  return result;
+}
+
+/**
+ * Revenue for the selected period: the grand total, a breakdown by the name
+ * in the sales column, and a breakdown by amount column.
+ *
+ * Every row lands in exactly one sales group — rows with the name left
+ * blank go to "(Tanpa Sales)" rather than being dropped — so the breakdown
+ * always adds up to the total instead of quietly losing money.
+ */
+function summariseOmset_(keluar, periode) {
+  const result = {
+    tersedia: keluar.adaOmset,
+    sheet: keluar.sheet,
+    kolom: keluar.kolomOmset,
+    total: 0,
+    barisTerhitung: 0,
+    perSales: [],
+    perKolom: []
+  };
+  if (!keluar.adaOmset) return result;
+
+  const bySales = {};
+  const byKolom = {};
+  keluar.kolomOmset.forEach(function (nama) { byKolom[nama] = 0; });
+
+  keluar.rows.forEach(function (row) {
+    if (!withinDashboardRange_(row.dayKey, periode)) return;
+
+    result.total += row.omset;
+    result.barisTerhitung++;
+
+    const nama = row.sales === '' ? DASHBOARD_TANPA_SALES : row.sales;
+    bySales[nama] = (bySales[nama] || 0) + row.omset;
+
+    keluar.kolomOmset.forEach(function (kolom) {
+      byKolom[kolom] += row.perKolom[kolom] || 0;
+    });
+  });
+
+  result.perSales = Object.keys(bySales)
+    .map(function (nama) { return { nama: nama, total: bySales[nama] }; })
+    .sort(function (a, b) { return b.total - a.total; });
+
+  result.perKolom = keluar.kolomOmset.map(function (nama) {
+    return { nama: nama, total: byKolom[nama] };
+  });
+
+  return result;
+}
+
+/**
+ * Revenue per calendar week for the trend line, ending with the week that
+ * contains today. Weeks with no sales are kept at zero — dropping them
+ * would draw a line that skips the quiet weeks and reads as if business
+ * never paused.
+ */
+function buildOmsetTrend_(keluar, periode, config) {
+  if (!keluar.adaOmset) return [];
+
+  const weeks = Math.max(1, Math.round(toNumber_(config.dashboard_minggu_tren)) || DASHBOARD_WEEKS_DEFAULT);
+  const today = civilDateOf_(periode.hariIni);
+  const offset = (today.getDay() + 6) % 7;
+  const seninIni = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset);
+
+  const buckets = [];
+  const byStart = {};
+  for (let i = weeks - 1; i >= 0; i--) {
+    const mulai = new Date(seninIni.getFullYear(), seninIni.getMonth(), seninIni.getDate() - i * 7);
+    const selesai = new Date(mulai.getFullYear(), mulai.getMonth(), mulai.getDate() + 6);
+    const bucket = {
+      mulai: civilKeyOf_(mulai),
+      selesai: civilKeyOf_(selesai),
+      label: formatWeekLabel_(mulai, selesai),
+      total: 0,
+      baris: 0
+    };
+    buckets.push(bucket);
+    byStart[bucket.mulai] = bucket;
+  }
+
+  const paling_awal = buckets[0].mulai;
+  const paling_akhir = buckets[buckets.length - 1].selesai;
+
+  keluar.rows.forEach(function (row) {
+    if (row.dayKey === '' || row.dayKey < paling_awal || row.dayKey > paling_akhir) return;
+
+    const hari = civilDateOf_(row.dayKey);
+    const geser = (hari.getDay() + 6) % 7;
+    const senin = civilKeyOf_(new Date(hari.getFullYear(), hari.getMonth(), hari.getDate() - geser));
+
+    const bucket = byStart[senin];
+    if (!bucket) return;
+    bucket.total += row.omset;
+    bucket.baris++;
+  });
+
+  return buckets;
+}
+
+const DASHBOARD_BULAN_SINGKAT = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+                                 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+/** "6–12 Okt" for the trend axis, kept short enough to fit on a phone. */
+function formatWeekLabel_(mulai, selesai) {
+  const awal = mulai.getDate() + (mulai.getMonth() === selesai.getMonth()
+    ? '' : ' ' + DASHBOARD_BULAN_SINGKAT[mulai.getMonth()]);
+  return awal + '–' + selesai.getDate() + ' ' + DASHBOARD_BULAN_SINGKAT[selesai.getMonth()];
 }
 
 function formatDashboardTime_(date) {

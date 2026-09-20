@@ -36,6 +36,11 @@ const DEFAULT_CONFIG_ENTRIES = [
   ['col_keluar_nama', 'NAMA BARANG'],
   ['col_keluar_jumlah', 'JUMLAH'],
   ['col_keluar_no', 'NO'],
+  // Fase 8C: kolom rupiah di sheet keluar (boleh lebih dari satu, dipisah koma)
+  // dan kolom teks berisi nama sales-nya.
+  ['col_keluar_omset', 'AMOUNT KANTOR, ANZAR, SALES B'],
+  ['col_keluar_sales', 'SALES'],
+  ['dashboard_minggu_tren', 8],
   ['col_rekap_kode', 'KODE BARANG'],
   ['col_rekap_nama', 'NAMA BARANG'],
   ['col_rekap_stok_awal', 'STOK AWAL'],

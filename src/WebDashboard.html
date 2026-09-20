@@ -87,6 +87,10 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
       @media (min-width: 720px) { .cards { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+      #cardsPeriode { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      @media (min-width: 720px) {
+        #cardsStok { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      }
 
       .stat {
         background: var(--surface); border: 1px solid var(--line);
@@ -118,6 +122,58 @@
       .mini { display: flex; gap: 14px; margin-top: 4px; flex-wrap: wrap; }
       .mini div { font-size: 12.5px; color: var(--muted); }
       .mini b { display: block; font-size: 19px; font-weight: 800; color: var(--ink); line-height: 1.2; }
+
+      /* Range toggle */
+      .range { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+      .range button {
+        flex: 1 1 auto; min-width: 88px; min-height: 42px;
+        font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+        padding: 9px 12px; border-radius: 10px;
+        border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+        transition: all .18s ease;
+      }
+      .range button[aria-pressed="true"] {
+        border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark);
+      }
+      .range button:disabled { opacity: .55; cursor: default; }
+
+      .section-head {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 10px; margin: 4px 2px 9px; flex-wrap: wrap;
+      }
+      .section-head h3 {
+        font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+        color: var(--muted); margin: 0; font-weight: 700;
+      }
+      .section-head span { font-size: 12.5px; color: var(--muted); }
+
+      /* Money */
+      .stat.money { grid-column: span 2; border-color: #bfdbfe; background: var(--accent-soft); }
+      .stat.money .k { color: var(--accent-dark); }
+      .stat.money .v {
+        color: var(--accent-dark);
+        font-size: clamp(24px, 7vw, 40px);   /* miliaran tetap muat di layar HP */
+        word-break: break-word;
+      }
+
+      .sales-row {
+        display: grid; grid-template-columns: minmax(90px, auto) 1fr minmax(96px, auto);
+        gap: 10px; align-items: center; padding: 9px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .sales-row:last-child { border-bottom: 0; }
+      .sales-row .nm { font-weight: 700; font-size: 14px; }
+      .sales-row .amt { text-align: right; font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 600; }
+      .sales-row .pct { font-size: 12px; color: var(--muted); font-weight: 500; }
+      .track { background: var(--line); border-radius: 999px; height: 9px; overflow: hidden; }
+      .track i {
+        display: block; height: 100%; border-radius: 999px; background: var(--accent);
+        transition: width .4s cubic-bezier(.2, .7, .3, 1);
+      }
+      .sales-foot {
+        margin: 12px 0 0; padding-top: 11px; border-top: 1px solid var(--line);
+        font-size: 12.5px; color: var(--muted);
+      }
 
       /* Charts */
       .charts { display: grid; gap: 14px; }
@@ -234,12 +290,39 @@
       </div>
 
       <div id="content">
-        <!-- Summary cards -->
-        <div class="cards" id="cards">
+        <div class="range" id="range"></div>
+
+        <!-- Period-filtered: revenue and activity -->
+        <div class="section-head">
+          <h3 id="periodeHead">Periode</h3>
+          <span id="periodeRange"></span>
+        </div>
+        <div class="cards" id="cardsPeriode">
+          <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
+          <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
+        </div>
+
+        <!-- Revenue per sales -->
+        <div class="card hidden" id="salesCard">
+          <h2 id="salesTitle">Omset per Sales</h2>
+          <div id="salesBody"></div>
+        </div>
+
+        <!-- Not filtered: stock is a right-now position -->
+        <div class="section-head">
+          <h3>Posisi Stok Saat Ini</h3>
+          <span>Tidak ikut filter waktu — ini kondisi stok sekarang</span>
+        </div>
+        <div class="cards" id="cardsStok">
           <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
           <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
           <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
-          <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
+        </div>
+
+        <!-- Weekly revenue trend -->
+        <div class="card hidden" id="trenCard">
+          <h2 id="trenTitle">Tren Omset per Minggu</h2>
+          <div class="chart-box" id="trenBox"><div class="skel block"></div></div>
         </div>
 
         <!-- Charts -->
@@ -274,8 +357,10 @@
     <script>
       var REFRESH_MS = 5 * 60 * 1000;   // auto-refresh tiap 5 menit
       var KODE_KEY = 'stockManagerKode';
+      var RANGE_KEY = 'stockManagerRentang';
       var DATA = null;
-      var pieChart = null, barChart = null;
+      var RENTANG = 'hari';
+      var pieChart = null, barChart = null, trenChart = null;
       var timer = null;
       var loading = false;
 
@@ -289,6 +374,37 @@
         var n = Number(value);
         if (!isFinite(n)) return '0';
         return n.toLocaleString('id-ID');
+      }
+
+      // Satu-satunya tempat rupiah diformat, supaya konsisten di semua kartu,
+      // tabel dan tooltip. Nilai kosong/rusak jadi Rp 0, bukan NaN.
+      function rupiah(value) {
+        var n = Number(value);
+        if (!isFinite(n)) n = 0;
+        var negatif = n < 0;
+        var teks = Math.round(Math.abs(n)).toLocaleString('id-ID');
+        return (negatif ? '-Rp ' : 'Rp ') + teks;
+      }
+
+      // Versi pendek untuk sumbu grafik, yang tidak muat angka penuh.
+      function rupiahSingkat(value) {
+        var n = Number(value);
+        if (!isFinite(n) || n === 0) return 'Rp 0';
+        var abs = Math.abs(n);
+        var tanda = n < 0 ? '-' : '';
+        if (abs >= 1e12) return tanda + 'Rp ' + (abs / 1e12).toFixed(1).replace('.', ',') + ' T';
+        if (abs >= 1e9) return tanda + 'Rp ' + (abs / 1e9).toFixed(1).replace('.', ',') + ' M';
+        if (abs >= 1e6) return tanda + 'Rp ' + (abs / 1e6).toFixed(1).replace('.', ',') + ' jt';
+        if (abs >= 1e3) return tanda + 'Rp ' + Math.round(abs / 1e3) + ' rb';
+        return tanda + 'Rp ' + Math.round(abs);
+      }
+
+      function tanggalPendek(key) {
+        if (!key) return '';
+        var p = String(key).split('-');
+        if (p.length !== 3) return key;
+        var bulan = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+        return Number(p[2]) + ' ' + bulan[Number(p[1]) - 1] + ' ' + p[0];
       }
       function safeGet(key) {
         try { return window.localStorage.getItem(key); } catch (e) { return null; }
@@ -325,9 +441,30 @@
 
       /* ---------- loading ---------- */
 
+      function pilihRentang(id) {
+        if (loading || id === RENTANG) return;
+        RENTANG = id;
+        safeSet(RANGE_KEY, id);
+        renderRange();          // tombolnya langsung pindah, angkanya menyusul
+        load(true);
+      }
+
+      function renderRange() {
+        var pilihan = (DATA && DATA.rentangPilihan) || [
+          { id: 'hari', label: 'Hari Ini' }, { id: 'minggu', label: 'Minggu Ini' },
+          { id: 'bulan', label: 'Bulan Ini' }, { id: 'semua', label: 'Semua' }
+        ];
+        el('range').innerHTML = pilihan.map(function (r) {
+          return '<button type="button" aria-pressed="' + (r.id === RENTANG) + '"' +
+            (loading ? ' disabled' : '') +
+            ' onclick="pilihRentang(\'' + r.id + '\')">' + esc(r.label) + '</button>';
+        }).join('');
+      }
+
       function busy(on) {
         loading = on;
         el('refreshBtn').disabled = on;
+        renderRange();
         el('refreshIcon').innerHTML = on ? '<span class="spinner"></span>' : '&#8635;';
         if (on) el('sub').textContent = 'Memuat data…';
       }
@@ -350,14 +487,18 @@
             el('sub').textContent = 'Gagal memuat';
             showBanner('err', 'Gagal memuat data', message);
           })
-          .getDashboardData({ kodeAkses: safeGet(KODE_KEY) || '' });
+          .getDashboardData({ kodeAkses: safeGet(KODE_KEY) || '', rentang: RENTANG });
       }
 
       /* ---------- render ---------- */
 
       function render(data) {
         el('sub').textContent = 'Diperbarui ' + data.generatedAt + ' · sumber: ' + data.rekapSheet;
+        RENTANG = data.periode.id;
+        renderRange();
+        renderPeriodeHead(data);
         renderCards(data);
+        renderSales(data);
         renderKritis(data);
 
         if (data.kosong) {
@@ -368,18 +509,56 @@
         }
         el('charts').classList.remove('hidden');
         renderCharts(data);
+        renderTren(data);
+      }
+
+      function renderPeriodeHead(data) {
+        var p = data.periode;
+        el('periodeHead').textContent = 'Periode: ' + p.label;
+        el('periodeRange').textContent = p.semua
+          ? 'Seluruh data yang ada di sheet'
+          : (p.dari === p.sampai
+              ? tanggalPendek(p.dari)
+              : tanggalPendek(p.dari) + ' – ' + tanggalPendek(p.sampai));
       }
 
       function renderCards(data) {
         var s = data.summary;
-        var t = data.hariIni;
+        var t = data.transaksi;
+        var o = data.omset;
         var aman = s.perluRestok === 0;
 
+        // --- kartu yang ikut filter waktu ---
+        var omsetCard = o.tersedia
+          ? '<div class="stat money">' +
+              '<div class="k">Omset Keseluruhan</div>' +
+              '<div class="v">' + rupiah(o.total) + '</div>' +
+              '<div class="n">' + num(o.barisTerhitung) + ' transaksi · ' +
+                esc(o.kolom.join(' + ')) + '</div>' +
+            '</div>'
+          : '<div class="stat money">' +
+              '<div class="k">Omset Keseluruhan</div>' +
+              '<div class="v" style="font-size:20px">Belum diatur</div>' +
+              '<div class="n">Isi key <b>col_keluar_omset</b> di sheet Config dengan nama kolom rupiahnya.</div>' +
+            '</div>';
+
+        el('cardsPeriode').innerHTML = omsetCard +
+          '<div class="stat">' +
+            '<div class="k">Transaksi ' + esc(data.periode.label) + '</div>' +
+            '<div class="v">' + num(t.total.baris) + '</div>' +
+            '<div class="mini">' +
+              '<div><b>' + num(t.masuk.baris) + '</b>masuk</div>' +
+              '<div><b>' + num(t.retur.baris) + '</b>retur</div>' +
+              '<div><b>' + num(t.keluar.baris) + '</b>keluar</div>' +
+            '</div>' +
+          '</div>';
+
+        // --- kartu posisi stok, sengaja TIDAK ikut filter waktu ---
         var lainnya = s.lainnya > 0
           ? '<div class="n">' + num(s.lainnya) + ' belum ada status (' + esc(data.label.lainnya) + ')</div>'
           : '';
 
-        el('cards').innerHTML =
+        el('cardsStok').innerHTML =
           '<div class="stat">' +
             '<div class="k">Total Jenis Barang</div>' +
             '<div class="v">' + num(s.totalBarang) + '</div>' + lainnya +
@@ -395,17 +574,44 @@
             '<div class="k">' + esc(data.label.perluRestok) + '</div>' +
             '<div class="v">' + num(s.perluRestok) + '</div>' +
             '<div class="n">' + (aman ? 'Semua stok di atas batas minimum.' : 'Barang yang stoknya sudah di batas minimum atau kurang.') + '</div>' +
-          '</div>' +
-
-          '<div class="stat">' +
-            '<div class="k">Transaksi Hari Ini</div>' +
-            '<div class="v">' + num(t.total.baris) + '</div>' +
-            '<div class="mini">' +
-              '<div><b>' + num(t.masuk.baris) + '</b>masuk</div>' +
-              '<div><b>' + num(t.retur.baris) + '</b>retur</div>' +
-              '<div><b>' + num(t.keluar.baris) + '</b>keluar</div>' +
-            '</div>' +
           '</div>';
+      }
+
+      function renderSales(data) {
+        var o = data.omset;
+        if (!o.tersedia) { el('salesCard').classList.add('hidden'); return; }
+        el('salesCard').classList.remove('hidden');
+        el('salesTitle').textContent = 'Omset per Sales · ' + data.periode.label;
+
+        if (o.perSales.length === 0) {
+          el('salesBody').innerHTML =
+            '<div class="empty"><strong>Belum ada omset di periode ini</strong>' +
+            'Ganti filter waktu di atas untuk melihat periode lain.</div>';
+          return;
+        }
+
+        // Skala bar dibuat relatif terhadap sales terbesar, bukan terhadap
+        // total, supaya perbedaan antar sales tetap kelihatan.
+        var terbesar = o.perSales[0].total || 1;
+
+        var baris = o.perSales.map(function (item) {
+          var pct = o.total ? (item.total / o.total * 100) : 0;
+          var lebar = Math.max(2, Math.abs(item.total) / Math.abs(terbesar) * 100);
+          return '<div class="sales-row">' +
+            '<div><div class="nm">' + esc(item.nama) + '</div>' +
+              '<div class="pct">' + pct.toFixed(1).replace('.', ',') + '%</div></div>' +
+            '<div class="track"><i style="width:' + lebar.toFixed(1) + '%"></i></div>' +
+            '<div class="amt">' + rupiah(item.total) + '</div>' +
+          '</div>';
+        }).join('');
+
+        var perKolom = o.perKolom.map(function (k) {
+          return esc(k.nama) + ' ' + rupiah(k.total);
+        }).join(' · ');
+
+        el('salesBody').innerHTML = baris +
+          '<p class="sales-foot">Total ' + rupiah(o.total) +
+          ' · rincian per kolom: ' + perKolom + '</p>';
       }
 
       function renderKritis(data) {
@@ -447,11 +653,73 @@
       function destroyCharts() {
         if (pieChart) { pieChart.destroy(); pieChart = null; }
         if (barChart) { barChart.destroy(); barChart = null; }
+        if (trenChart) { trenChart.destroy(); trenChart = null; }
+      }
+
+      // Tren mingguan sengaja TIDAK ikut filter waktu: gunanya justru untuk
+      // melihat naik-turun antar minggu, jadi selalu beberapa minggu terakhir.
+      function renderTren(data) {
+        var tren = data.tren || [];
+        if (!data.omset.tersedia || tren.length === 0) {
+          el('trenCard').classList.add('hidden');
+          return;
+        }
+        el('trenCard').classList.remove('hidden');
+        el('trenTitle').textContent = 'Tren Omset per Minggu (' + tren.length + ' minggu terakhir)';
+
+        if (typeof Chart === 'undefined') {
+          el('trenBox').innerHTML = '<div class="empty">Grafik tidak bisa dimuat.</div>';
+          return;
+        }
+
+        el('trenBox').innerHTML = '<canvas id="tren"></canvas>';
+        trenChart = new Chart(el('tren'), {
+          type: 'line',
+          data: {
+            labels: tren.map(function (w) { return w.label; }),
+            datasets: [{
+              label: 'Omset',
+              data: tren.map(function (w) { return w.total; }),
+              borderColor: '#2563eb',
+              backgroundColor: 'rgba(37, 99, 235, .12)',
+              borderWidth: 2.5, fill: true, tension: .32,
+              pointRadius: 4, pointHoverRadius: 6,
+              pointBackgroundColor: '#2563eb', pointBorderColor: '#fff', pointBorderWidth: 2
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  title: function (ctx) {
+                    var w = tren[ctx[0].dataIndex];
+                    return tanggalPendek(w.mulai) + ' – ' + tanggalPendek(w.selesai);
+                  },
+                  label: function (ctx) {
+                    var w = tren[ctx.dataIndex];
+                    return ' ' + rupiah(w.total) + ' · ' + w.baris + ' transaksi';
+                  }
+                }
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                grid: { color: 'rgba(148,163,184,.22)' },
+                ticks: { callback: function (v) { return rupiahSingkat(v); } }
+              },
+              x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 12 } }
+            }
+          }
+        });
       }
 
       function chartsUnavailable() {
         el('pieBox').innerHTML = '<div class="empty">Grafik tidak bisa dimuat (koneksi ke CDN Chart.js gagal). Angka di atas dan tabel di bawah tetap akurat.</div>';
         el('barBox').innerHTML = '<div class="empty">Grafik tidak bisa dimuat.</div>';
+        el('trenBox').innerHTML = '<div class="empty">Grafik tidak bisa dimuat.</div>';
       }
 
       function renderCharts(data) {
@@ -572,6 +840,8 @@
         if (!document.hidden && DATA) load(false);
       });
 
+      RENTANG = safeGet(RANGE_KEY) || 'hari';
+      renderRange();
       loadNav();
       load(true);
       startAutoRefresh();
