@@ -24,9 +24,54 @@ function onOpen() {
     .addItem('Input Batch (Invoice)', 'testBatchInsert')
     .addSubMenu(sortMenu)
     .addSeparator()
+    .addItem('Hapus Baris', 'promptDeleteRow')
+    .addItem('Edit Rekap Barang', 'showRekapForm')
+    .addSeparator()
     .addItem('Debug Config', 'debugConfig')
     .addItem('Clear Cache Config', 'clearConfigCacheAndNotify')
     .addToUi();
+}
+
+/**
+ * Simple trigger. Apps Script merges every .gs file into one global scope,
+ * so there can only be ONE onEdit in the whole project — it dispatches to
+ * each handler instead. Everything is wrapped: a failure here must never
+ * block the user's manual edit, so errors are logged, not thrown.
+ */
+function onEdit(e) {
+  try {
+    handleConfigEdit_(e);
+  } catch (err) {
+    Logger.log('onEdit() -> handleConfigEdit_ failed: %s', err.message);
+  }
+
+  try {
+    handleTransaksiEdit_(e);
+  } catch (err) {
+    Logger.log('onEdit() -> handleTransaksiEdit_ failed: %s', err.message);
+  }
+}
+
+/** Menu handler: asks for a row number, then deletes it from the active sheet. */
+function promptDeleteRow() {
+  const ui = SpreadsheetApp.getUi();
+  const sheetName = SpreadsheetApp.getActiveSheet().getName();
+
+  const response = ui.prompt(
+    'Hapus Baris',
+    'Nomor baris yang mau dihapus di sheet "' + sheetName + '":',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+
+  const rowIndex = Number(response.getResponseText().trim());
+  if (!rowIndex || !isFinite(rowIndex) || rowIndex % 1 !== 0) {
+    notify_('Hapus Baris', 'Nomor baris harus angka bulat.');
+    return;
+  }
+
+  const result = deleteRow(sheetName, rowIndex);
+  notify_('Hapus Baris', result.message);
 }
 
 /** Menu handler: flushes the cached config, then reports what a fresh read returns. */

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 13px;
+        margin: 0;
+        padding: 12px;
+      }
+      h2 { font-size: 14px; margin: 0 0 12px; }
+      fieldset { border: 1px solid #ccc; border-radius: 4px; margin: 0 0 12px; padding: 8px 10px 10px; }
+      legend { font-weight: bold; padding: 0 4px; }
+      label { display: block; margin: 8px 0 3px; font-weight: bold; }
+      input, select, button { width: 100%; box-sizing: border-box; font-size: 13px; padding: 6px; }
+      input, select { border: 1px solid #bbb; border-radius: 3px; }
+      .mode { display: flex; gap: 12px; }
+      .mode label { display: flex; align-items: center; gap: 5px; font-weight: normal; margin: 0; }
+      .mode input { width: auto; }
+      button {
+        margin-top: 12px; padding: 9px; font-weight: bold; cursor: pointer;
+        border: 1px solid #1a73e8; background: #1a73e8; color: #fff; border-radius: 3px;
+      }
+      button:disabled { opacity: .6; cursor: default; }
+      #status { margin-top: 10px; padding: 8px; border-radius: 3px; display: none; white-space: pre-wrap; }
+      #status.ok { display: block; background: #e6f4ea; color: #137333; }
+      #status.err { display: block; background: #fce8e6; color: #c5221f; }
+      #status.info { display: block; background: #e8f0fe; color: #1967d2; }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <h2>Editor REKAP BARANG</h2>
+
+    <fieldset>
+      <legend>Mode</legend>
+      <div class="mode">
+        <label><input type="radio" name="mode" value="new" checked> Tambah Baru</label>
+        <label><input type="radio" name="mode" value="edit"> Edit Existing</label>
+      </div>
+
+      <div id="pickWrap" class="hidden">
+        <label for="pick">Pilih Kode Barang</label>
+        <select id="pick"><option value="">Memuat…</option></select>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Data Barang</legend>
+      <label for="kode">Kode Barang</label>
+      <input id="kode" type="text" autocomplete="off">
+
+      <label for="nama">Nama Barang</label>
+      <input id="nama" type="text" autocomplete="off">
+
+      <label for="isiPack">Isi per Pack</label>
+      <input id="isiPack" type="number" step="any" value="0">
+
+      <label for="isiDus">Isi per Dus</label>
+      <input id="isiDus" type="number" step="any" value="0">
+
+      <label for="minStok">Min Stok</label>
+      <input id="minStok" type="number" step="any" value="0">
+
+      <label for="stokAwal">Stok Awal</label>
+      <input id="stokAwal" type="number" step="any" value="0">
+    </fieldset>
+
+    <button id="submit" onclick="submitForm()">Simpan</button>
+    <div id="status"></div>
+
+    <script>
+      var items = [];
+
+      function el(id) { return document.getElementById(id); }
+      function mode() { return document.querySelector('input[name="mode"]:checked').value; }
+
+      function setStatus(text, kind) {
+        var box = el('status');
+        box.textContent = text;
+        box.className = kind || '';
+      }
+
+      function loadItems() {
+        google.script.run
+          .withSuccessHandler(function (data) {
+            items = data || [];
+            var pick = el('pick');
+            pick.innerHTML = '<option value="">— pilih —</option>';
+            items.forEach(function (item) {
+              var option = document.createElement('option');
+              option.value = item.kode;
+              option.textContent = item.kode + ' — ' + item.nama;
+              pick.appendChild(option);
+            });
+          })
+          .withFailureHandler(function (err) {
+            setStatus('Gagal memuat daftar barang: ' + err.message, 'err');
+          })
+          .getRekapItems();
+      }
+
+      function onModeChange() {
+        var isEdit = mode() === 'edit';
+        el('pickWrap').className = isEdit ? '' : 'hidden';
+        el('kode').readOnly = isEdit;
+        setStatus('', '');
+        if (!isEdit) {
+          el('pick').value = '';
+          clearFields();
+        }
+      }
+
+      function clearFields() {
+        ['kode', 'nama'].forEach(function (id) { el(id).value = ''; });
+        ['isiPack', 'isiDus', 'minStok', 'stokAwal'].forEach(function (id) { el(id).value = 0; });
+      }
+
+      function onPick() {
+        var kode = el('pick').value;
+        var item = items.filter(function (row) { return row.kode === kode; })[0];
+        if (!item) { clearFields(); return; }
+        el('kode').value = item.kode;
+        el('nama').value = item.nama;
+        el('isiPack').value = item.isiPack;
+        el('isiDus').value = item.isiDus;
+        el('minStok').value = item.minStok;
+        el('stokAwal').value = item.stokAwal;
+      }
+
+      function submitForm() {
+        var payload = {
+          mode: mode(),
+          kode: el('kode').value,
+          nama: el('nama').value,
+          isiPack: el('isiPack').value,
+          isiDus: el('isiDus').value,
+          minStok: el('minStok').value,
+          stokAwal: el('stokAwal').value
+        };
+
+        if (!payload.kode.trim()) { setStatus('Kode Barang wajib diisi.', 'err'); return; }
+        if (!payload.nama.trim()) { setStatus('Nama Barang wajib diisi.', 'err'); return; }
+
+        el('submit').disabled = true;
+        setStatus('Menyimpan…', 'info');
+
+        google.script.run
+          .withSuccessHandler(function (result) {
+            el('submit').disabled = false;
+            setStatus(result.message, 'ok');
+            loadItems();
+            if (mode() === 'new') clearFields();
+          })
+          .withFailureHandler(function (err) {
+            el('submit').disabled = false;
+            setStatus(err.message, 'err');
+          })
+          .saveRekapItem(payload);
+      }
+
+      document.querySelectorAll('input[name="mode"]').forEach(function (radio) {
+        radio.addEventListener('change', onModeChange);
+      });
+      el('pick').addEventListener('change', onPick);
+
+      loadItems();
+      onModeChange();
+    </script>
+  </body>
+</html>

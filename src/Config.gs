@@ -34,6 +34,12 @@ const DEFAULT_CONFIG_ENTRIES = [
   ['col_rekap_min_stok', 'MIN STOK'],
   ['col_rekap_sisa_stok', 'SISA STOK'],
   ['col_rekap_status', 'STATUS'],
+  ['col_rekap_masuk', 'MASUK'],
+  ['col_rekap_retur', 'RETUR'],
+  ['col_rekap_keluar', 'KELUAR'],
+  ['col_rekap_sisa_dus', 'SISA DUS'],
+  ['col_rekap_isi_pack', 'ISI PER PACK'],
+  ['col_rekap_isi_dus', 'ISI PER DUS'],
   ['header_row_masuk', 5],
   ['header_row_retur', 5],
   ['header_row_keluar', 6],
@@ -364,11 +370,14 @@ function backfillConfigSheet() {
 }
 
 /**
- * Simple trigger: auto-clears the config cache whenever the Config sheet is
- * edited, so getConfig() reflects new values on the very next call instead
- * of waiting for the cache TTL to expire.
+ * Clears the config cache when the Config sheet is edited, so getConfig()
+ * reflects new values on the very next call instead of waiting for the TTL.
+ *
+ * Called from the single onEdit() in Main.gs rather than being a trigger
+ * itself: Apps Script merges every .gs file into one global scope, so two
+ * functions named onEdit would be a redeclaration that breaks the project.
  */
-function onEdit(e) {
+function handleConfigEdit_(e) {
   if (!e || !e.range) return;
   if (normalizeText_(e.range.getSheet().getName()).toLowerCase() === CONFIG_SHEET_NAME.toLowerCase()) {
     clearConfigCache();
