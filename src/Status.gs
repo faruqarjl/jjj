@@ -6,13 +6,38 @@
  * recomputed by a separate scan over the sheet.
  */
 
-const STATUS_AMAN = 'AMAN';
-const STATUS_PERLU_RESTOK = 'PERLU RESTOK';
-const STATUS_TIDAK_DIKETAHUI = 'N/A';
+// Fallbacks only — the text actually written to the sheet comes from the
+// status_teks_* keys in Config, so another business can use SAFE/REORDER
+// without touching code. These apply when a key is blank or missing.
+const STATUS_AMAN_DEFAULT = 'AMAN';
+const STATUS_PERLU_RESTOK_DEFAULT = 'PERLU RESTOK';
+const STATUS_NA_DEFAULT = 'N/A';
 
-const STATUS_WARNA = {};
-STATUS_WARNA[STATUS_AMAN] = '#D9EAD3';        // hijau muda
-STATUS_WARNA[STATUS_PERLU_RESTOK] = '#F4CCCC'; // merah muda
+const WARNA_STATUS_AMAN = '#D9EAD3';        // hijau muda
+const WARNA_STATUS_PERLU_RESTOK = '#F4CCCC'; // merah muda
+
+/** The three STATUS labels as configured. */
+function statusTexts_() {
+  const config = getConfig();
+  const pick = function (key, fallback) {
+    const value = normalizeText_(config[key]);
+    return value === '' ? fallback : value;
+  };
+
+  return {
+    aman: pick('status_teks_aman', STATUS_AMAN_DEFAULT),
+    perluRestok: pick('status_teks_perlu_restok', STATUS_PERLU_RESTOK_DEFAULT),
+    tidakDiketahui: pick('status_teks_na', STATUS_NA_DEFAULT)
+  };
+}
+
+/** The background for a status label, or null when it has no verdict. */
+function statusColour_(status) {
+  const texts = statusTexts_();
+  if (status === texts.aman) return WARNA_STATUS_AMAN;
+  if (status === texts.perluRestok) return WARNA_STATUS_PERLU_RESTOK;
+  return null;
+}
 
 /**
  * Colour the STATUS cell only, rather than the whole row.
@@ -31,9 +56,10 @@ const STATUS_WARNAI_SELURUH_BARIS = false;
  * since only it knows which item code is involved.
  */
 function calculateStatus_(sisaStok, minStok) {
+  const texts = statusTexts_();
   const min = toNumber_(minStok);
-  if (!(min > 0)) return STATUS_TIDAK_DIKETAHUI;
-  return toNumber_(sisaStok) <= min ? STATUS_PERLU_RESTOK : STATUS_AMAN;
+  if (!(min > 0)) return texts.tidakDiketahui;
+  return toNumber_(sisaStok) <= min ? texts.perluRestok : texts.aman;
 }
 
 /**
@@ -44,7 +70,7 @@ function applyStatusColor_(sheetName, rowIndex, status) {
   const config = getConfig();
   const table = getTableInfo_(sheetName);
   const statusColumn = getColumnIndex(sheetName, config.col_rekap_status, table.headerRow);
-  const warna = STATUS_WARNA[status] || null;
+  const warna = statusColour_(status);
 
   const range = STATUS_WARNAI_SELURUH_BARIS
     ? table.sheet.getRange(rowIndex, 1, 1, table.width)

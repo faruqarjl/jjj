@@ -158,8 +158,9 @@ function filterRekapByStatus(status) {
     };
   }
 
-  const nilai = pilihan === FILTER_AMAN ? STATUS_AMAN
-    : pilihan === FILTER_PERLU_RESTOK ? STATUS_PERLU_RESTOK
+  const texts = statusTexts_();
+  const nilai = pilihan === FILTER_AMAN ? texts.aman
+    : pilihan === FILTER_PERLU_RESTOK ? texts.perluRestok
       : null;
   if (nilai === null) {
     throw new Error(

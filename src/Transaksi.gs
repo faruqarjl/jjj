@@ -218,8 +218,10 @@ function assertConsistentInvoice_(config, rowDataObjects) {
 function sortByDate(sheetName, order) {
   const direction = normalizeSortOrder_(order);
   const config = getConfig();
-  const prefix = resolveColumnPrefix_(sheetName, config);
-  const dateColumnName = config['col_' + prefix + '_tgl'];
+  const dateColumnName = columnNameFor_(sheetName, 'tgl', config);
+  if (dateColumnName === null) {
+    throw new Error('Sheet "' + sheetName + '" bukan sheet transaksi yang dikenal di Config.');
+  }
 
   const table = getTableInfo_(sheetName);
   const dateColumnIndex = getColumnIndex(sheetName, dateColumnName, table.headerRow);
@@ -240,7 +242,7 @@ function sortByDate(sheetName, order) {
   const dataRange = table.sheet.getRange(table.firstDataRow, 1, dataRowCount, table.width);
   const sorted = sortRowsByDate_(dataRange.getValues(), dateColumnIndex - 1, direction);
 
-  const noIndex = findNoColumnIndex_(table.headers);
+  const noIndex = findNoColumnIndex_(table.sheet.getName(), table.headers);
   if (noIndex !== -1) {
     sorted.forEach(function (row, i) {
       row[noIndex] = i + 1;
@@ -308,14 +310,19 @@ function toTimeValue_(value) {
 }
 
 /**
- * Locates a column literally headed "NO", or -1. This column isn't in the
- * Config defaults — it's treated as an optional, purely cosmetic row-number
- * column rather than a per-sheet business field, so it's detected by header
- * text directly instead of adding config keys nothing else needs.
+ * Locates the row-number column, or -1 when the sheet has none.
+ *
+ * The header comes from the sheet's col_*_no key, so a business numbering
+ * its rows "No." or "SEQ" still gets renumbering. Falls back to "NO" when
+ * the key is missing, which keeps a Config sheet written before those keys
+ * existed working until Setup backfills it.
  */
-function findNoColumnIndex_(headers) {
+function findNoColumnIndex_(sheetName, headers) {
+  const configured = columnNameFor_(sheetName, 'no');
+  const wanted = normalizeText_(configured === null ? 'NO' : configured).toUpperCase();
+
   return headers.findIndex(function (header) {
-    return String(header).trim().toUpperCase() === 'NO';
+    return normalizeText_(header).toUpperCase() === wanted;
   });
 }
 
@@ -325,7 +332,7 @@ function findNoColumnIndex_(headers) {
  * its own array instead, to avoid a second write). Returns rows renumbered.
  */
 function renumberNoColumn_(table) {
-  const noIndex = findNoColumnIndex_(table.headers);
+  const noIndex = findNoColumnIndex_(table.sheet.getName(), table.headers);
   if (noIndex === -1) return 0;
 
   const rowCount = table.sheet.getLastRow() - table.headerRow;
@@ -397,17 +404,6 @@ function normalizeMergedCells_(table) {
   });
 
   return merges.length;
-}
-
-/** Maps a transaction sheet to its Config column-key prefix ("masuk" or "keluar"). */
-function resolveColumnPrefix_(sheetName, config) {
-  if (sheetName === config.sheet_barang_masuk || sheetName === config.sheet_barang_retur) {
-    return 'masuk';
-  }
-  if (sheetName === config.sheet_barang_keluar) {
-    return 'keluar';
-  }
-  throw new Error('Sheet "' + sheetName + '" bukan sheet transaksi yang dikenal di Config.');
 }
 
 /**

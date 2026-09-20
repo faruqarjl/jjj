@@ -443,7 +443,7 @@ function verifyRowMatches_(sheetName, rowIndex, expected) {
   // The NO column is excluded: it is cosmetic and maintained automatically
   // (deleteRow and sortByDate renumber it), so it legitimately differs from
   // what was recorded without meaning the row itself changed.
-  const noIndex = findNoColumnIndex_(table.headers);
+  const noIndex = findNoColumnIndex_(sheetName, table.headers);
 
   const actual = table.sheet.getRange(rowIndex, 1, 1, table.width).getValues()[0];
   for (let i = 0; i < expected.length && i < actual.length; i++) {

@@ -23,11 +23,19 @@ const DEFAULT_CONFIG_ENTRIES = [
   ['col_masuk_nama', 'NAMA BARANG'],
   ['col_masuk_jumlah', 'JUMLAH'],
   ['col_masuk_keterangan', 'KETERANGAN'],
+  ['col_masuk_no', 'NO'],
+  ['col_retur_tgl', 'TGL'],
+  ['col_retur_kode', 'CODE BARANG'],
+  ['col_retur_nama', 'NAMA BARANG'],
+  ['col_retur_jumlah', 'JUMLAH'],
+  ['col_retur_keterangan', 'KETERANGAN'],
+  ['col_retur_no', 'NO'],
   ['col_keluar_tgl', 'TGL'],
   ['col_keluar_invoice', 'INVOICE'],
   ['col_keluar_kode', 'KODE BARANG'],
   ['col_keluar_nama', 'NAMA BARANG'],
   ['col_keluar_jumlah', 'JUMLAH'],
+  ['col_keluar_no', 'NO'],
   ['col_rekap_kode', 'KODE BARANG'],
   ['col_rekap_nama', 'NAMA BARANG'],
   ['col_rekap_stok_awal', 'STOK AWAL'],
@@ -40,6 +48,10 @@ const DEFAULT_CONFIG_ENTRIES = [
   ['col_rekap_sisa_dus', 'SISA DUS'],
   ['col_rekap_isi_pack', 'ISI PER PACK'],
   ['col_rekap_isi_dus', 'ISI PER DUS'],
+  ['col_rekap_no', 'NO'],
+  ['status_teks_aman', 'AMAN'],
+  ['status_teks_perlu_restok', 'PERLU RESTOK'],
+  ['status_teks_na', 'N/A'],
   ['header_row_masuk', 5],
   ['header_row_retur', 5],
   ['header_row_keluar', 6],
@@ -248,6 +260,30 @@ function resolveSheetKeyPrefix_(sheetName, config) {
     return normalizeText_(pair[1]).toLowerCase() === name;
   })[0];
   return hit ? hit[0] : null;
+}
+
+/**
+ * The configured column name for one logical field on a sheet — e.g.
+ * ('BARANG RETUR', 'tgl') -> the value of col_retur_tgl. Returns null when
+ * the sheet isn't in Config or the field has no key.
+ *
+ * BARANG RETUR falls back to the BARANG MASUK keys when its own are blank,
+ * so a Config sheet written before col_retur_* existed keeps working until
+ * Setup backfills it.
+ */
+function columnNameFor_(sheetName, field, config) {
+  const settings = config || getConfig();
+  const prefix = resolveSheetKeyPrefix_(sheetName, settings);
+  if (!prefix) return null;
+
+  const own = normalizeText_(settings['col_' + prefix + '_' + field]);
+  if (own !== '') return own;
+
+  if (prefix === 'retur') {
+    const inherited = normalizeText_(settings['col_masuk_' + field]);
+    if (inherited !== '') return inherited;
+  }
+  return null;
 }
 
 /**

@@ -123,9 +123,9 @@ function computeRekapValues_(input) {
   return {
     sisaStok: sisaStok,
     sisaDus: sisaDus,
-    sisaDusText: sisaDus === null ? 'N/A' : sisaDus,
+    sisaDusText: sisaDus === null ? statusTexts_().tidakDiketahui : sisaDus,
     status: status,
-    warna: STATUS_WARNA[status] || null
+    warna: statusColour_(status)
   };
 }
 
@@ -136,7 +136,7 @@ function logRekapWarnings_(kode, input, values) {
       kode, input.isiDus, input.isiPack
     );
   }
-  if (values.status === STATUS_TIDAK_DIKETAHUI) {
+  if (values.status === statusTexts_().tidakDiketahui) {
     Logger.log(
       'recalculateRekap("%s"): MIN STOK (%s) kosong/nol — STATUS diisi "N/A".',
       kode, input.minStok
@@ -386,8 +386,10 @@ function transactionColumns_(sheetName, config) {
   const key = resolveSheetKeyPrefix_(sheetName, config);
   if (key !== 'masuk' && key !== 'retur' && key !== 'keluar') return null;
 
-  const prefix = key === 'keluar' ? 'keluar' : 'masuk';
-  return { kode: config['col_' + prefix + '_kode'], jumlah: config['col_' + prefix + '_jumlah'] };
+  const kode = columnNameFor_(sheetName, 'kode', config);
+  const jumlah = columnNameFor_(sheetName, 'jumlah', config);
+  if (kode === null || jumlah === null) return null;
+  return { kode: kode, jumlah: jumlah };
 }
 
 function toNumber_(value) {
@@ -522,7 +524,7 @@ function saveRekapItem(payload) {
     targetRow = appendRow(sheetName, fields);
 
     const table = getTableInfo_(sheetName);
-    const noIndex = findNoColumnIndex_(table.headers);
+    const noIndex = findNoColumnIndex_(sheetName, table.headers);
     if (noIndex !== -1) {
       table.sheet.getRange(targetRow, noIndex + 1).setValue(targetRow - table.headerRow);
     }

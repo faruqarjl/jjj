@@ -211,9 +211,10 @@ function groupConsecutiveRuns_(rowNumbers) {
 function resolveDateColumnName_(sheetName) {
   const config = getConfig();
   const prefix = resolveSheetKeyPrefix_(sheetName, config);
-  if (prefix === 'masuk' || prefix === 'retur') return config.col_masuk_tgl;
-  if (prefix === 'keluar') return config.col_keluar_tgl;
-  return null; // REKAP BARANG has no date column
+  if (prefix !== 'masuk' && prefix !== 'retur' && prefix !== 'keluar') {
+    return null; // REKAP BARANG has no date column
+  }
+  return columnNameFor_(sheetName, 'tgl', config);
 }
 
 /**
