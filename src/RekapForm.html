@@ -158,7 +158,7 @@
             el('submit').disabled = false;
             setStatus(err.message, 'err');
           })
-          .saveRekapItem(payload);
+          .saveRekapItemLogged(payload);
       }
 
       document.querySelectorAll('input[name="mode"]').forEach(function (radio) {

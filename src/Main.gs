@@ -28,6 +28,9 @@ function onOpen() {
     .addItem('Edit Rekap Barang', 'showRekapForm')
     .addItem('Refresh Semua Status', 'refreshSemuaStatus')
     .addSeparator()
+    .addItem('Undo Terakhir', 'undoLastAction')
+    .addItem('Redo', 'redoAction')
+    .addSeparator()
     .addItem('Debug Config', 'debugConfig')
     .addItem('Clear Cache Config', 'clearConfigCacheAndNotify')
     .addToUi();
@@ -44,6 +47,14 @@ function onEdit(e) {
     handleConfigEdit_(e);
   } catch (err) {
     Logger.log('onEdit() -> handleConfigEdit_ failed: %s', err.message);
+  }
+
+  // Logged before the resync, so beforeState is captured while the recap
+  // still reflects the pre-edit numbers.
+  try {
+    handleEditLogging_(e);
+  } catch (err) {
+    Logger.log('onEdit() -> handleEditLogging_ failed: %s', err.message);
   }
 
   try {
@@ -86,7 +97,7 @@ function promptDeleteRow() {
     return;
   }
 
-  const result = deleteRow(sheetName, rowIndex);
+  const result = deleteRowLogged(sheetName, rowIndex);
   notify_('Hapus Baris', result.message);
 }
 
@@ -113,7 +124,7 @@ function testAppendRow() {
   row[getConfigValue('col_masuk_jumlah')] = 10;
   row[getConfigValue('col_masuk_keterangan')] = 'Dummy test dari menu Input Manual';
 
-  const rowIndex = appendRow(sheetName, row);
+  const rowIndex = appendRowLogged(sheetName, row);
   notify_('Input Manual', 'Baris baru ditambahkan ke "' + sheetName + '" di baris ' + rowIndex + '.');
 }
 
@@ -137,7 +148,7 @@ function testBatchInsert() {
     return row;
   });
 
-  const rowIndices = batchInsert(config.sheet_barang_keluar, rows);
+  const rowIndices = batchInsertLogged(config.sheet_barang_keluar, rows);
   notify_(
     'Input Batch (Invoice)',
     rowIndices.length + ' baris ditambahkan ke "' + config.sheet_barang_keluar +
@@ -176,11 +187,13 @@ function sortKeluarAsc() {
 function runSetup() {
   const configCreated = ensureConfigSheet();
   const panduanCreated = ensurePanduanSheet_();
+  const actionLogCreated = ensureActionLogSheet();
   const addedKeys = configCreated ? [] : backfillConfigSheet();
 
   const created = [];
   if (configCreated) created.push('Config');
   if (panduanCreated) created.push('Panduan');
+  if (actionLogCreated) created.push('ActionLog');
 
   const messages = [];
   if (created.length > 0) {
@@ -190,7 +203,7 @@ function runSetup() {
     messages.push('Key baru ditambahkan ke Config:\n' + addedKeys.join('\n'));
   }
   if (messages.length === 0) {
-    messages.push('Sheet Config dan Panduan sudah lengkap. Tidak ada yang diubah.');
+    messages.push('Sheet Config, Panduan dan ActionLog sudah lengkap. Tidak ada yang diubah.');
   }
 
   notify_('Setup', messages.join('\n\n'));
