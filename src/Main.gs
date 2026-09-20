@@ -333,6 +333,8 @@ const CONFIG_KEY_NOTES = {
   sheet_barang_retur: 'Nama sheet retur (barang kembali ke gudang — menambah stok).',
   sheet_barang_keluar: 'Nama sheet barang keluar / penjualan.',
   sheet_rekap_barang: 'Nama sheet rekap stok per barang.',
+  daftar_user: 'Daftar nama yang muncul di dropdown "Pilih Nama Kamu" pada web app, dipisah koma.',
+  webapp_kode_akses: 'Kode akses web app. Kosongkan kalau tidak perlu; kalau diisi, kode ini harus dimasukkan sebelum bisa submit.',
   status_teks_aman: 'Teks yang ditulis ke kolom STATUS saat stok masih aman.',
   status_teks_perlu_restok: 'Teks STATUS saat sisa stok <= min stok.',
   status_teks_na: 'Teks saat STATUS atau SISA DUS tidak bisa dihitung (min stok / isi per dus kosong).'

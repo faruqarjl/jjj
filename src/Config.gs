@@ -49,6 +49,8 @@ const DEFAULT_CONFIG_ENTRIES = [
   ['col_rekap_isi_pack', 'ISI PER PACK'],
   ['col_rekap_isi_dus', 'ISI PER DUS'],
   ['col_rekap_no', 'NO'],
+  ['daftar_user', 'Budi, Siti, Andi'],
+  ['webapp_kode_akses', ''],
   ['status_teks_aman', 'AMAN'],
   ['status_teks_perlu_restok', 'PERLU RESTOK'],
   ['status_teks_na', 'N/A'],

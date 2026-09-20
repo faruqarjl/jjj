@@ -11,10 +11,26 @@
  */
 
 const ACTION_LOG_SHEET_NAME = 'ActionLog';
+// InputBy is appended AFTER Status rather than inserted before it, so a log
+// written by an earlier version keeps its Status in the same column.
 const ACTION_LOG_HEADERS = [
-  'Timestamp', 'ActionType', 'SheetName', 'RowIndex', 'BeforeState', 'AfterState', 'Status'
+  'Timestamp', 'ActionType', 'SheetName', 'RowIndex', 'BeforeState', 'AfterState',
+  'Status', 'InputBy'
 ];
+const ACTION_LOG_STATUS_COLUMN = 7;
 const ACTION_LOG_MAX_ACTIVE = 50;
+
+/**
+ * Who is performing the current action. The web app sets this from the
+ * "Pilih Nama Kamu" dropdown; work done from the spreadsheet menu leaves it
+ * blank. Apps Script runs each execution in a fresh context, so this never
+ * leaks between users.
+ */
+let currentInputBy_ = '';
+
+function setInputBy_(name) {
+  currentInputBy_ = normalizeText_(name);
+}
 
 const LOG_STATUS_ACTIVE = 'ACTIVE';
 const LOG_STATUS_UNDONE = 'UNDONE';
@@ -33,7 +49,17 @@ const AKSI_EDIT_FORM = 'EDIT_FORM';
 /** Creates the ActionLog sheet if absent. Returns true when it was created. */
 function ensureActionLogSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (ss.getSheetByName(ACTION_LOG_SHEET_NAME)) return false;
+  const existing = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
+
+  if (existing) {
+    // A log from before InputBy existed is one column short; widen it
+    // rather than leaving the header blank for every new entry.
+    if (existing.getLastColumn() < ACTION_LOG_HEADERS.length) {
+      existing.getRange(1, 1, 1, ACTION_LOG_HEADERS.length).setValues([ACTION_LOG_HEADERS]);
+      Logger.log('ensureActionLogSheet(): header diperlebar ke %s kolom.', ACTION_LOG_HEADERS.length);
+    }
+    return false;
+  }
 
   const sheet = ss.insertSheet(ACTION_LOG_SHEET_NAME);
   sheet.getRange(1, 1, 1, ACTION_LOG_HEADERS.length)
@@ -85,9 +111,11 @@ function logAction_(actionType, sheetName, rowIndex, beforeState, afterState) {
 
   sheet.appendRow([
     new Date(), actionType, sheetName, rowIndex,
-    encodeValues_(beforeState), encodeValues_(afterState), LOG_STATUS_ACTIVE
+    encodeValues_(beforeState), encodeValues_(afterState), LOG_STATUS_ACTIVE,
+    currentInputBy_
   ]);
-  Logger.log('logAction_(): %s di "%s" baris %s.', actionType, sheetName, rowIndex);
+  Logger.log('logAction_(): %s di "%s" baris %s oleh "%s".',
+    actionType, sheetName, rowIndex, currentInputBy_ || '(menu)');
 
   trimActionLog_(sheet);
 }
@@ -105,13 +133,14 @@ function readActionLogEntries_(sheet) {
       rowIndex: Number(row[3]),
       beforeState: decodeValues_(row[4]),
       afterState: decodeValues_(row[5]),
-      status: normalizeText_(row[6])
+      status: normalizeText_(row[6]),
+      inputBy: normalizeText_(row[7])
     };
   });
 }
 
 function setEntryStatus_(sheet, logRow, status) {
-  sheet.getRange(logRow, ACTION_LOG_HEADERS.length).setValue(status);
+  sheet.getRange(logRow, ACTION_LOG_STATUS_COLUMN).setValue(status);
 }
 
 function expireUndoneEntries_(sheet) {

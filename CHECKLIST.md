@@ -159,7 +159,7 @@ Disepakati saat audit Fase 7 — didokumentasikan, tidak diperbaiki:
 
 ## Cakupan simulasi
 
-8 suite, 541 pemeriksaan, semua hijau:
+9 suite, 615 pemeriksaan, semua hijau:
 
 | Suite | Cakupan | Jumlah |
 |---|---|---|
@@ -171,7 +171,50 @@ Disepakati saat audit Fase 7 — didokumentasikan, tidak diperbaiki:
 | `harness6` | Warna, Filter View | 74 |
 | `harness7` | Export PDF/Excel | 68 |
 | `harness8` | **Bisnis asing** + Panduan otomatis | 54 |
+| `harness9` | Form web app (Fase 8A) | 74 |
 
 `harness8` yang paling relevan untuk reusability: sheet berbahasa Inggris, nama
 kolom berbeda di tiap sheet, RETUR punya kolom sendiri, `SEQ`/`LINE` sebagai
 nomor urut, `SAFE`/`REORDER` sebagai STATUS, dan empat baris header berbeda.
+
+
+---
+
+## Fase 8A — Form input web app
+
+| Fitur | Status | Catatan |
+|---|---|---|
+| Form input 1 transaksi (Masuk/Retur/Keluar) | Belum pernah live | Lulus simulasi |
+| Form input batch per invoice | Belum pernah live | Lulus simulasi |
+| Dropdown "Pilih Nama Kamu" dari `daftar_user` | Belum pernah live | Lulus simulasi |
+| Kode akses opsional (`webapp_kode_akses`) | Belum pernah live | Lulus simulasi |
+| Nama penginput tercatat di ActionLog (`InputBy`) | Belum pernah live | Lulus simulasi |
+| ActionLog lama (7 kolom) otomatis diperlebar | Belum pernah live | Lulus simulasi |
+| Undo tetap jalan untuk baris dari web app | Belum pernah live | Lulus simulasi |
+| Deploy web app | **Menunggu Anda** | Lihat README bagian "Fase 8A" |
+
+### Yang perlu Anda tes sendiri setelah deploy
+
+1. Buka URL web app dari HP, bukan dari laptop — ini yang dipakai sehari-hari.
+2. Input 1 transaksi Masuk, cek barisnya muncul di sheet dan REKAP ikut berubah.
+3. Input 1 invoice berisi 3 barang, cek ketiganya masuk dengan invoice yang sama.
+4. Undo dari menu spreadsheet — 1 invoice harus hilang sekaligus, bukan satu-satu.
+5. Cek sheet ActionLog: kolom `InputBy` terisi nama yang dipilih.
+6. Isi `webapp_kode_akses` di Config, buka ulang halaman, pastikan kode diminta.
+
+### Catatan perilaku
+
+- Kolom `NO` sengaja dibiarkan kosong saat input, persis seperti input dari
+  menu (perilaku sejak Fase 1). Nomor urut dirapikan ulang saat ada baris
+  yang dihapus. Kalau Anda mau `NO` langsung terisi, itu perubahan pada
+  `appendRow`/`batchInsert` yang kena ke semua jalur input — bilang saja.
+- `daftar_user` disimpan sebagai satu key di Config (dipisah koma), bukan
+  sheet Users tersendiri, karena tidak ada data lain per orang selain nama.
+
+### Batasan keamanan (bukan bug, ini konsekuensi pilihan deployment)
+
+Deployment "Execute as Me / Anyone" berarti siapa pun yang punya URL-nya bisa
+menulis ke spreadsheet, tanpa login Google. Dropdown nama itu deklarasi
+mandiri untuk pertanggungjawaban, **bukan autentikasi** — siapa pun bisa
+memilih nama siapa pun. `webapp_kode_akses` hanya penghalang tambahan kalau
+link-nya bocor, bukan kontrol akses sungguhan.

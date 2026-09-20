@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <style>
+      :root {
+        --accent: #2563eb;
+        --accent-dark: #1d4ed8;
+        --accent-soft: #eff6ff;
+        --ink: #0f172a;
+        --muted: #64748b;
+        --line: #e2e8f0;
+        --surface: #ffffff;
+        --bg: #f1f5f9;
+        --ok: #15803d;
+        --ok-soft: #f0fdf4;
+        --err: #b91c1c;
+        --err-soft: #fef2f2;
+        --radius: 14px;
+      }
+
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+      body {
+        margin: 0;
+        padding: 0 0 40px;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      header {
+        background: var(--surface);
+        border-bottom: 1px solid var(--line);
+        padding: 16px 18px 0;
+        position: sticky; top: 0; z-index: 10;
+      }
+      h1 { font-size: 19px; margin: 0 0 2px; letter-spacing: -.01em; }
+      .sub { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+
+      /* Tabs */
+      .tabs { display: flex; gap: 4px; }
+      .tab {
+        flex: 1; border: 0; background: none; cursor: pointer;
+        font: inherit; font-size: 14px; font-weight: 600; color: var(--muted);
+        padding: 11px 6px; border-bottom: 3px solid transparent;
+        transition: color .18s ease, border-color .18s ease;
+      }
+      .tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+
+      main { padding: 16px; max-width: 560px; margin: 0 auto; }
+
+      .card {
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: var(--radius); padding: 16px; margin-bottom: 14px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+        animation: rise .28s cubic-bezier(.2, .7, .3, 1) both;
+      }
+      @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+      .card h2 {
+        font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+        color: var(--muted); margin: 0 0 12px; font-weight: 700;
+      }
+
+      label { display: block; font-size: 14px; font-weight: 600; margin: 0 0 6px; }
+      .field { margin-bottom: 14px; }
+      .field:last-child { margin-bottom: 0; }
+
+      input, select, textarea {
+        width: 100%; font: inherit; font-size: 16px; /* 16px stops iOS zooming on focus */
+        padding: 13px 14px; min-height: 50px;
+        border: 1px solid #cbd5e1; border-radius: 10px;
+        background: var(--surface); color: var(--ink);
+        transition: border-color .15s ease, box-shadow .15s ease;
+      }
+      textarea { min-height: 72px; resize: vertical; }
+      input:focus, select:focus, textarea:focus {
+        outline: 0; border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, .15);
+      }
+      input:disabled, select:disabled { background: #f8fafc; color: var(--muted); }
+
+      /* Segmented control for transaction type */
+      .segment { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .segment input { position: absolute; opacity: 0; pointer-events: none; }
+      .segment label {
+        margin: 0; text-align: center; padding: 13px 4px; min-height: 50px;
+        display: flex; align-items: center; justify-content: center;
+        border: 1px solid #cbd5e1; border-radius: 10px; cursor: pointer;
+        font-size: 14px; font-weight: 600; color: var(--muted);
+        transition: all .18s ease;
+      }
+      .segment input:checked + label {
+        border-color: var(--accent); background: var(--accent-soft);
+        color: var(--accent-dark);
+      }
+
+      /* Batch item rows */
+      .item {
+        border: 1px solid var(--line); border-radius: 12px;
+        padding: 12px; margin-bottom: 10px; background: #fbfdff;
+        animation: rise .2s ease both;
+      }
+      .item-head {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 10px;
+      }
+      .item-no { font-size: 13px; font-weight: 700; color: var(--muted); }
+      .remove {
+        border: 0; background: none; color: var(--err); font: inherit;
+        font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 8px;
+        border-radius: 8px;
+      }
+      .remove:disabled { color: #cbd5e1; cursor: default; }
+      .row2 { display: grid; grid-template-columns: 1fr 110px; gap: 10px; }
+
+      button.action {
+        width: 100%; font: inherit; font-size: 16px; font-weight: 700;
+        min-height: 54px; padding: 15px; border-radius: 12px; cursor: pointer;
+        border: 1px solid var(--accent); background: var(--accent); color: #fff;
+        display: flex; align-items: center; justify-content: center; gap: 9px;
+        transition: background .15s ease, transform .1s ease;
+      }
+      button.action:active { transform: scale(.985); }
+      button.action:disabled { opacity: .65; cursor: default; }
+      button.ghost {
+        background: var(--surface); color: var(--accent); border-color: #bfdbfe;
+        min-height: 48px; font-size: 15px; margin-top: 4px;
+      }
+
+      .spinner {
+        width: 17px; height: 17px; border: 2.5px solid rgba(255, 255, 255, .45);
+        border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      /* Result banners */
+      .banner {
+        display: none; align-items: flex-start; gap: 11px;
+        padding: 14px; border-radius: 12px; margin-bottom: 14px;
+        font-size: 14.5px; animation: rise .25s ease both;
+      }
+      .banner.show { display: flex; }
+      .banner.ok { background: var(--ok-soft); border: 1px solid #bbf7d0; color: var(--ok); }
+      .banner.err { background: var(--err-soft); border: 1px solid #fecaca; color: var(--err); }
+      .banner strong { display: block; margin-bottom: 2px; }
+
+      .check { width: 22px; height: 22px; flex: none; }
+      .check circle, .check path {
+        stroke: var(--ok); stroke-width: 2.5; fill: none;
+        stroke-linecap: round; stroke-linejoin: round;
+      }
+      .check circle { stroke-dasharray: 76; animation: draw .45s ease forwards; }
+      .check path { stroke-dasharray: 22; animation: draw .3s .35s ease forwards; opacity: 0; }
+      @keyframes draw { from { stroke-dashoffset: 76; } to { stroke-dashoffset: 0; opacity: 1; } }
+
+      .hint { font-size: 12.5px; color: var(--muted); margin: 7px 0 0; }
+      .hidden { display: none !important; }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ink: #e2e8f0; --muted: #94a3b8; --line: #334155;
+          --surface: #1e293b; --bg: #0f172a; --accent-soft: #1e3a5f;
+          --ok-soft: #14301f; --err-soft: #3b1618;
+        }
+        input, select, textarea { border-color: #475569; }
+        .item { background: #1b2635; }
+        input:disabled, select:disabled { background: #172033; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Input Stok</h1>
+      <p class="sub" id="sub">Memuat…</p>
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="true" onclick="showTab('manual')" id="tabManual">Input Manual</button>
+        <button class="tab" role="tab" aria-selected="false" onclick="showTab('batch')" id="tabBatch">Batch Invoice</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="banner" id="banner"></div>
+
+      <!-- Identity applies to both tabs -->
+      <div class="card">
+        <h2>Identitas</h2>
+        <div class="field">
+          <label for="user">Pilih Nama Kamu</label>
+          <select id="user"><option value="">Memuat…</option></select>
+        </div>
+        <div class="field hidden" id="accessWrap">
+          <label for="kodeAkses">Kode Akses</label>
+          <input id="kodeAkses" type="password" inputmode="numeric" autocomplete="off" placeholder="••••">
+        </div>
+      </div>
+
+      <!-- ============ MANUAL ============ -->
+      <section id="paneManual">
+        <div class="card">
+          <h2>Jenis Transaksi</h2>
+          <div class="segment">
+            <input type="radio" name="jenis" id="jMasuk" value="masuk" checked>
+            <label for="jMasuk">Masuk</label>
+            <input type="radio" name="jenis" id="jRetur" value="retur">
+            <label for="jRetur">Retur</label>
+            <input type="radio" name="jenis" id="jKeluar" value="keluar">
+            <label for="jKeluar">Keluar</label>
+          </div>
+          <p class="hint" id="jenisHint"></p>
+        </div>
+
+        <div class="card">
+          <h2>Data Transaksi</h2>
+          <div class="field">
+            <label for="tanggal">Tanggal</label>
+            <input id="tanggal" type="date">
+          </div>
+          <div class="field hidden" id="invoiceWrap">
+            <label for="invoice">Nomor Invoice</label>
+            <input id="invoice" type="text" autocomplete="off" placeholder="INV-001">
+          </div>
+          <div class="field">
+            <label for="kode">Kode Barang</label>
+            <input id="kode" list="itemList" autocomplete="off" placeholder="Ketik atau pilih">
+            <datalist id="itemList"></datalist>
+          </div>
+          <div class="field">
+            <label for="nama">Nama Barang</label>
+            <input id="nama" type="text" autocomplete="off" placeholder="Terisi otomatis dari kode">
+          </div>
+          <div class="field">
+            <label for="jumlah">Jumlah</label>
+            <input id="jumlah" type="number" inputmode="numeric" min="1" step="any" placeholder="0">
+          </div>
+          <div class="field" id="keteranganWrap">
+            <label for="keterangan">Keterangan</label>
+            <textarea id="keterangan" placeholder="Opsional"></textarea>
+          </div>
+        </div>
+
+        <button class="action" id="submitManual" onclick="submitManual()">Simpan Transaksi</button>
+      </section>
+
+      <!-- ============ BATCH ============ -->
+      <section id="paneBatch" class="hidden">
+        <div class="card">
+          <h2>Invoice</h2>
+          <div class="field">
+            <label for="bTanggal">Tanggal</label>
+            <input id="bTanggal" type="date">
+          </div>
+          <div class="field">
+            <label for="bInvoice">Nomor Invoice</label>
+            <input id="bInvoice" type="text" autocomplete="off" placeholder="INV-001">
+          </div>
+          <p class="hint">Semua barang di bawah dicatat dengan satu nomor invoice ini.</p>
+        </div>
+
+        <div class="card">
+          <h2>Daftar Barang</h2>
+          <div id="items"></div>
+          <button class="action ghost" onclick="addItem()">+ Tambah Barang</button>
+        </div>
+
+        <button class="action" id="submitBatch" onclick="submitBatch()">Simpan Invoice</button>
+      </section>
+    </main>
+
+    <script>
+      var DATA = { users: [], items: [], jenis: [], needsAccessCode: false };
+      var itemCount = 0;
+
+      function el(id) { return document.getElementById(id); }
+      function jenisValue() { return document.querySelector('input[name="jenis"]:checked').value; }
+      function today() { return new Date().toISOString().slice(0, 10); }
+
+      /* ---------- banners ---------- */
+
+      function showOk(text) {
+        el('banner').className = 'banner ok show';
+        el('banner').innerHTML =
+          '<svg class="check" viewBox="0 0 26 26"><circle cx="13" cy="13" r="11"/>' +
+          '<path d="M8 13.5l3.2 3.2L18 10"/></svg>' +
+          '<span><strong>Tersimpan</strong>' + escapeHtml(text) + '</span>';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      function showErr(text) {
+        el('banner').className = 'banner err show';
+        el('banner').innerHTML = '<span><strong>Gagal</strong>' + escapeHtml(text) + '</span>';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      function clearBanner() { el('banner').className = 'banner'; }
+
+      function escapeHtml(text) {
+        return String(text == null ? '' : text)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+
+      function busy(button, on, labelWhenIdle) {
+        button.disabled = on;
+        button.innerHTML = on
+          ? '<span class="spinner"></span>Menyimpan…'
+          : labelWhenIdle;
+      }
+
+      /* ---------- load ---------- */
+
+      function load() {
+        google.script.run
+          .withSuccessHandler(function (data) {
+            DATA = data;
+
+            var select = el('user');
+            select.innerHTML = '<option value="">— pilih nama —</option>';
+            data.users.forEach(function (name) {
+              var option = document.createElement('option');
+              option.value = name;
+              option.textContent = name;
+              select.appendChild(option);
+            });
+
+            // Remember the picker across submits and page reloads: warehouse
+            // staff enter many rows in a row and shouldn't re-pick each time.
+            var saved = safeGet('stockManagerUser');
+            if (saved && data.users.indexOf(saved) !== -1) select.value = saved;
+
+            var list = el('itemList');
+            list.innerHTML = '';
+            data.items.forEach(function (item) {
+              var option = document.createElement('option');
+              option.value = item.kode;
+              option.label = item.nama;
+              list.appendChild(option);
+            });
+
+            el('accessWrap').className = data.needsAccessCode ? 'field' : 'field hidden';
+            el('sub').textContent = data.items.length
+              ? data.items.length + ' barang terdaftar'
+              : 'Daftar barang belum terisi — kode bisa diketik manual';
+
+            if (data.users.length === 0) {
+              showErr('Daftar nama belum diisi. Isi key "daftar_user" di sheet Config.');
+            }
+            syncJenis();
+          })
+          .withFailureHandler(function (err) { showErr(err.message); })
+          .getWebAppData();
+      }
+
+      function safeGet(key) {
+        try { return window.localStorage.getItem(key); } catch (e) { return null; }
+      }
+      function safeSet(key, value) {
+        try { window.localStorage.setItem(key, value); } catch (e) { /* private mode */ }
+      }
+
+      /* ---------- tabs ---------- */
+
+      function showTab(which) {
+        var manual = which === 'manual';
+        el('tabManual').setAttribute('aria-selected', String(manual));
+        el('tabBatch').setAttribute('aria-selected', String(!manual));
+        el('paneManual').className = manual ? '' : 'hidden';
+        el('paneBatch').className = manual ? 'hidden' : '';
+        clearBanner();
+      }
+
+      /* ---------- manual ---------- */
+
+      function syncJenis() {
+        var jenis = jenisValue();
+        var keluar = jenis === 'keluar';
+        el('invoiceWrap').className = keluar ? 'field' : 'field hidden';
+        el('keteranganWrap').className = keluar ? 'field hidden' : 'field';
+
+        var match = (DATA.jenis || []).filter(function (j) { return j.id === jenis; })[0];
+        el('jenisHint').textContent = match ? 'Tercatat ke sheet: ' + match.sheet : '';
+      }
+
+      function fillNameFromCode(codeInput, nameInput) {
+        var code = codeInput.value.trim().toLowerCase();
+        var match = (DATA.items || []).filter(function (item) {
+          return item.kode.toLowerCase() === code;
+        })[0];
+        if (match) nameInput.value = match.nama;
+      }
+
+      function submitManual() {
+        var button = el('submitManual');
+        var payload = {
+          user: el('user').value,
+          kodeAkses: el('kodeAkses').value,
+          jenis: jenisValue(),
+          tanggal: el('tanggal').value,
+          kode: el('kode').value,
+          nama: el('nama').value,
+          jumlah: el('jumlah').value,
+          keterangan: el('keterangan').value,
+          invoice: el('invoice').value
+        };
+
+        if (!payload.user) { showErr('Pilih nama kamu dulu.'); return; }
+        if (!payload.kode.trim()) { showErr('Kode barang wajib diisi.'); return; }
+        if (!(Number(payload.jumlah) > 0)) { showErr('Jumlah harus lebih dari 0.'); return; }
+
+        clearBanner();
+        busy(button, true);
+
+        google.script.run
+          .withSuccessHandler(function (result) {
+            busy(button, false, 'Simpan Transaksi');
+            safeSet('stockManagerUser', payload.user);
+            showOk(result.message);
+            resetManual();
+          })
+          .withFailureHandler(function (err) {
+            busy(button, false, 'Simpan Transaksi');
+            showErr(err.message);
+          })
+          .submitWebAppInput(payload);
+      }
+
+      // Keeps name, date and type — the next entry is usually the same kind.
+      function resetManual() {
+        ['kode', 'nama', 'jumlah', 'keterangan'].forEach(function (id) { el(id).value = ''; });
+        el('kode').focus();
+      }
+
+      /* ---------- batch ---------- */
+
+      function addItem() {
+        itemCount++;
+        var wrap = document.createElement('div');
+        wrap.className = 'item';
+        wrap.dataset.item = '1';
+        wrap.innerHTML =
+          '<div class="item-head"><span class="item-no">Barang ' + itemCount + '</span>' +
+          '<button class="remove" type="button">Hapus</button></div>' +
+          '<div class="field"><label>Kode Barang</label>' +
+          '<input class="bKode" list="itemList" autocomplete="off" placeholder="Ketik atau pilih"></div>' +
+          '<div class="row2"><div><label>Nama Barang</label>' +
+          '<input class="bNama" type="text" autocomplete="off" placeholder="Otomatis"></div>' +
+          '<div><label>Jumlah</label>' +
+          '<input class="bJumlah" type="number" inputmode="numeric" min="1" step="any" placeholder="0"></div></div>';
+
+        el('items').appendChild(wrap);
+
+        wrap.querySelector('.remove').onclick = function () {
+          wrap.remove();
+          renumberItems();
+        };
+        wrap.querySelector('.bKode').addEventListener('change', function () {
+          fillNameFromCode(this, wrap.querySelector('.bNama'));
+        });
+
+        renumberItems();
+        wrap.querySelector('.bKode').focus();
+      }
+
+      function renumberItems() {
+        var items = document.querySelectorAll('[data-item]');
+        items.forEach(function (item, i) {
+          item.querySelector('.item-no').textContent = 'Barang ' + (i + 1);
+          item.querySelector('.remove').disabled = items.length === 1;
+        });
+        itemCount = items.length;
+      }
+
+      function submitBatch() {
+        var button = el('submitBatch');
+        var items = [];
+        document.querySelectorAll('[data-item]').forEach(function (row) {
+          items.push({
+            kode: row.querySelector('.bKode').value,
+            nama: row.querySelector('.bNama').value,
+            jumlah: row.querySelector('.bJumlah').value
+          });
+        });
+
+        var payload = {
+          user: el('user').value,
+          kodeAkses: el('kodeAkses').value,
+          tanggal: el('bTanggal').value,
+          invoice: el('bInvoice').value,
+          items: items.filter(function (item) { return item.kode.trim() !== ''; })
+        };
+
+        if (!payload.user) { showErr('Pilih nama kamu dulu.'); return; }
+        if (!payload.invoice.trim()) { showErr('Nomor invoice wajib diisi.'); return; }
+        if (payload.items.length === 0) { showErr('Isi minimal satu barang.'); return; }
+
+        var bad = payload.items.filter(function (item) { return !(Number(item.jumlah) > 0); });
+        if (bad.length) { showErr('Setiap barang harus punya jumlah lebih dari 0.'); return; }
+
+        clearBanner();
+        busy(button, true);
+
+        google.script.run
+          .withSuccessHandler(function (result) {
+            busy(button, false, 'Simpan Invoice');
+            safeSet('stockManagerUser', payload.user);
+            showOk(result.message);
+            resetBatch();
+          })
+          .withFailureHandler(function (err) {
+            busy(button, false, 'Simpan Invoice');
+            showErr(err.message);
+          })
+          .submitWebAppBatch(payload);
+      }
+
+      function resetBatch() {
+        el('bInvoice').value = '';
+        el('items').innerHTML = '';
+        itemCount = 0;
+        addItem();
+      }
+
+      /* ---------- wiring ---------- */
+
+      document.querySelectorAll('input[name="jenis"]').forEach(function (radio) {
+        radio.addEventListener('change', function () { syncJenis(); clearBanner(); });
+      });
+      el('kode').addEventListener('change', function () {
+        fillNameFromCode(this, el('nama'));
+      });
+
+      el('tanggal').value = today();
+      el('bTanggal').value = today();
+      addItem();
+      load();
+    </script>
+  </body>
+</html>

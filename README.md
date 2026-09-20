@@ -29,6 +29,11 @@ adapting to a different layout means editing Config values, not the script.
   handlers that call into `Transaksi.gs`.
 - `src/Transaksi.gs` — generic input logic shared by all three transaction
   sheets: `appendRow()`, `batchInsert()`, `sortByDate()`, `applyBorders()`.
+- `src/WebApp.gs` — the web app form's server side: `doGet()`,
+  `getWebAppData()`, `submitWebAppInput()`, `submitWebAppBatch()`. Every
+  submit goes through `appendRowLogged()`/`batchInsertLogged()`, so it wraps
+  the existing logic instead of duplicating it.
+- `src/WebAppInput.html` — the mobile input form served by `doGet()`.
 
 ## Config sheet
 
@@ -140,6 +145,62 @@ New menu items under **Stock Manager**:
 
 Delete/edit features are intentionally out of scope for this phase (Fase 2).
 
+## Fase 8A — Web app input form
+
+A phone-friendly form so warehouse staff can record stock without opening the
+spreadsheet. It handles two things: one transaction at a time (Masuk / Retur /
+Keluar), and one invoice with several items at once.
+
+Everything it writes goes through `appendRowLogged()` / `batchInsertLogged()`,
+the same helpers the spreadsheet menu uses, so the recap resync, borders,
+`NO` handling and undo history behave identically no matter where the row
+came from.
+
+### Config keys it reads
+
+| Key | Default | Meaning |
+|---|---|---|
+| `daftar_user` | `Budi, Siti, Andi` | Names in the "Pilih Nama Kamu" dropdown, comma-separated. Only these names are accepted. |
+| `webapp_kode_akses` | *(blank)* | Optional shared access code. Blank disables the check entirely. |
+
+### ActionLog gained an `InputBy` column
+
+`InputBy` is column 8, appended **after** `Status` so an existing 7-column log
+keeps `Status` where it is. `ensureActionLogSheet()` widens an old log on the
+next run. Rows entered from the spreadsheet menu leave `InputBy` blank; rows
+from the web app carry the chosen name.
+
+### Deploying it
+
+1. **Extensions > Apps Script**, then **Deploy > New deployment**.
+2. Gear icon > **Web app**.
+3. Execute as: **Me**. Who has access: **Anyone**.
+4. **Deploy**, authorise, and copy the web app URL. Share that URL with staff.
+
+The manifest already sets `executeAs: USER_DEPLOYING` and
+`access: ANYONE_ANONYMOUS`, so the dialog comes pre-filled.
+
+**Every time the code changes you must deploy a new version** — *Deploy >
+Manage deployments > edit (pencil) > Version: New version > Deploy*. The URL
+stays the same. A plain `clasp push` updates the editor but **not** the live
+web app.
+
+### What this deployment actually means, stated plainly
+
+"Execute as Me" + "Anyone" means **anyone holding the URL can write to your
+spreadsheet, with no Google login**. That is what makes it work for staff on
+personal Gmail accounts, and it is the trade-off you accepted.
+
+The "Pilih Nama Kamu" dropdown is a self-declared label for accountability,
+**not authentication** — nothing stops someone picking a colleague's name.
+`webapp_kode_akses` adds a shared code as a second barrier; it is a
+deterrent against a leaked link, not real access control.
+
+If you need genuine authentication, the deployment has to change to "Anyone
+with a Google account", which means every member of staff signs in — the exact
+thing this setup was chosen to avoid.
+
 ## Next phase
 
-Fase 2: CRUD + auto-sync to `REKAP BARANG`.
+Fase 8B: dashboard. Not started — blocked until Fase 8A is approved and tested
+on a live spreadsheet.
