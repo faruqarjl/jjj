@@ -48,6 +48,9 @@ function deleteRow(sheetName, rowIndex) {
   table.sheet.deleteRow(row);
   Logger.log('deleteRow("%s", %s): deleted, kodeBarang=%s', sheetName, row, JSON.stringify(kodeBarang));
 
+  // The header row can't shift — rows at or above it are refused above — so
+  // the table geometry captured before the delete is still valid here.
+  renumberNoColumn_(table);
   applyBorders(sheetName);
 
   let recapNote = '';
@@ -82,20 +85,24 @@ function recalculateRekap(kodeBarang) {
   const retur = sumTransaksi_(config.sheet_barang_retur, kode, config);
   const keluar = sumTransaksi_(config.sheet_barang_keluar, kode, config);
 
-  const rekapSheetName = found.table.sheet.getName();
-  const stokAwalColumn = getColumnIndex(rekapSheetName, config.col_rekap_stok_awal, found.table.headerRow);
-  const stokAwal = toNumber_(found.table.sheet.getRange(found.row, stokAwalColumn).getValue());
+  const stokAwal = readRekapValue_(found, config.col_rekap_stok_awal);
   const sisaStok = stokAwal + masuk + retur - keluar;
 
+  // SISA DUS = SISA STOK / ISI PER DUS, rounded down. A zero or blank
+  // ISI PER DUS would divide to Infinity, so it yields 0 instead.
+  const isiDus = readRekapValue_(found, config.col_rekap_isi_dus);
+  const sisaDus = isiDus > 0 ? Math.floor(sisaStok / isiDus) : 0;
+
   Logger.log(
-    'recalculateRekap("%s"): stokAwal=%s masuk=%s retur=%s keluar=%s -> sisa=%s',
-    kode, stokAwal, masuk, retur, keluar, sisaStok
+    'recalculateRekap("%s"): stokAwal=%s masuk=%s retur=%s keluar=%s -> sisa=%s, isiDus=%s -> sisaDus=%s',
+    kode, stokAwal, masuk, retur, keluar, sisaStok, isiDus, sisaDus
   );
 
   writeRekapValue_(found, config.col_rekap_masuk, masuk);
   writeRekapValue_(found, config.col_rekap_retur, retur);
   writeRekapValue_(found, config.col_rekap_keluar, keluar);
   writeRekapValue_(found, config.col_rekap_sisa_stok, sisaStok);
+  writeRekapValue_(found, config.col_rekap_sisa_dus, sisaDus);
   return true;
 }
 
@@ -122,6 +129,11 @@ function findRekapRow_(kodeBarang) {
 function writeRekapValue_(found, columnHeaderName, value) {
   const column = getColumnIndex(found.table.sheet.getName(), columnHeaderName, found.table.headerRow);
   found.table.sheet.getRange(found.row, column).setValue(value);
+}
+
+function readRekapValue_(found, columnHeaderName) {
+  const column = getColumnIndex(found.table.sheet.getName(), columnHeaderName, found.table.headerRow);
+  return toNumber_(found.table.sheet.getRange(found.row, column).getValue());
 }
 
 /** Total JUMLAH for one item code on a transaction sheet. */

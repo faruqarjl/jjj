@@ -283,6 +283,26 @@ function findNoColumnIndex_(headers) {
 }
 
 /**
+ * Renumbers the "NO" column to 1..N top to bottom, for callers that change
+ * the row count without rewriting the whole block (sortByDate renumbers in
+ * its own array instead, to avoid a second write). Returns rows renumbered.
+ */
+function renumberNoColumn_(table) {
+  const noIndex = findNoColumnIndex_(table.headers);
+  if (noIndex === -1) return 0;
+
+  const rowCount = table.sheet.getLastRow() - table.headerRow;
+  if (rowCount < 1) return 0;
+
+  const numbers = [];
+  for (let i = 1; i <= rowCount; i++) {
+    numbers.push([i]);
+  }
+  table.sheet.getRange(table.firstDataRow, noIndex + 1, rowCount, 1).setValues(numbers);
+  return rowCount;
+}
+
+/**
  * Breaks every merge inside the table's data rows and refills the freed
  * cells with the merge's value, so unmerging leaves no blanks. Sheets
  * imported from Excel carry vertical merges (typically in NO or INVOICE)
