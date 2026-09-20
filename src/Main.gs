@@ -28,7 +28,8 @@ function onOpen() {
 function clearConfigCacheAndNotify() {
   clearConfigCache();
   const config = getConfig();
-  SpreadsheetApp.getUi().alert(
+  notify_(
+    'Clear Cache Config',
     'Cache dibersihkan. Hasil baca ulang sheet Config: ' + Object.keys(config).length +
     ' key.\n\n' + Object.keys(config).join(', ')
   );
@@ -47,9 +48,7 @@ function testAppendRow() {
   row[getConfigValue('col_masuk_keterangan')] = 'Dummy test dari menu Input Manual';
 
   const rowIndex = appendRow(sheetName, row);
-  SpreadsheetApp.getUi().alert(
-    'Baris baru ditambahkan ke "' + sheetName + '" di baris ' + rowIndex + '.'
-  );
+  notify_('Input Manual', 'Baris baru ditambahkan ke "' + sheetName + '" di baris ' + rowIndex + '.');
 }
 
 /** Menu handler: batch-inserts 3 dummy rows into BARANG KELUAR sharing one INVOICE. */
@@ -73,7 +72,8 @@ function testBatchInsert() {
   });
 
   const rowIndices = batchInsert(config.sheet_barang_keluar, rows);
-  SpreadsheetApp.getUi().alert(
+  notify_(
+    'Input Batch (Invoice)',
     rowIndices.length + ' baris ditambahkan ke "' + config.sheet_barang_keluar +
     '" (invoice ' + invoiceNumber + ') di baris ' + rowIndices.join(', ') + '.'
   );
@@ -115,7 +115,7 @@ function runSetup() {
     messages.push('Sheet Config dan Panduan sudah lengkap. Tidak ada yang diubah.');
   }
 
-  SpreadsheetApp.getUi().alert(messages.join('\n\n'));
+  notify_('Setup', messages.join('\n\n'));
 }
 
 function ensurePanduanSheet_() {

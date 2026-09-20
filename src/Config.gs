@@ -133,6 +133,22 @@ function normalizeText_(value) {
     .trim();
 }
 
+/**
+ * Reports a message to the spreadsheet UI when there is one, and always to
+ * the execution log. SpreadsheetApp.getUi() throws when a function is run
+ * from the Apps Script editor or a trigger, where no UI context exists —
+ * that must not fail work that already succeeded.
+ */
+function notify_(title, message) {
+  Logger.log('%s — %s', title, message);
+  try {
+    const ui = SpreadsheetApp.getUi();
+    ui.alert(title, message, ui.ButtonSet.OK);
+  } catch (err) {
+    Logger.log('(no UI context — message above went to the log only)');
+  }
+}
+
 function listSheetNames_() {
   return SpreadsheetApp.getActiveSpreadsheet().getSheets().map(function (sheet) {
     return JSON.stringify(sheet.getName());
@@ -179,8 +195,7 @@ function debugConfig() {
   }
 
   const report = lines.join('\n');
-  Logger.log(report);
-  SpreadsheetApp.getUi().alert('Debug Config', report, SpreadsheetApp.getUi().ButtonSet.OK);
+  notify_('Debug Config', report);
   return report;
 }
 
