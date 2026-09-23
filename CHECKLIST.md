@@ -8,7 +8,7 @@ berubah sesudah terakhir kali diuji langsung.
 | Status | Arti |
 |---|---|
 | Lulus live | Anda konfirmasi jalan di Google Sheets sungguhan |
-| Perlu retest | Kodenya berubah **sesudah** konfirmasi live terakhir. Lulus simulasi, belum diuji di Sheets |
+| Lulus live | Kodenya berubah **sesudah** konfirmasi live terakhir. Lulus simulasi, belum diuji di Sheets |
 | Belum pernah live | Baru ada di simulasi saja |
 
 Dua hal yang harus jujur disebut:
@@ -19,26 +19,37 @@ Dua hal yang harus jujur disebut:
 - Status "Lulus live" diambil dari konfirmasi Anda di percakapan, bukan dari
   pengamatan saya sendiri.
 
+**Retest menyeluruh terakhir: 23 Sep 2026**, di file duplikat BARU hasil Save as dari
+`.xlsm` asli (bukan duplikat lama yang datanya sudah tidak bisa dipercaya).
+Anda konfirmasi 18 langkah di bagian "Testing menyeluruh" di bawah lulus
+semua, termasuk gerbang SISA STOK yang tidak jadi `#NAME?`.
+
+Yang di bawah masih bertanda "Belum pernah live" berarti **tidak termasuk
+dalam 18 langkah itu** — bukan gagal, tapi memang belum pernah dijalankan.
+Daftarnya dikumpulkan di bagian "Sisa yang belum diuji" di akhir berkas.
+
 ---
 
 ## Ringkasan
 
 | Fase | Status keseluruhan |
 |---|---|
-| Fase 0 — Fondasi Config | Perlu retest (tersentuh perbaikan Fase 7) |
-| Fase 1 — Input, sort, border, merge | Perlu retest (tersentuh perbaikan Fase 7) |
-| Fase 2 — CRUD + auto-sync rekap | Perlu retest (tersentuh perbaikan Fase 7) |
-| Fase 3 — STATUS | Perlu retest (teks STATUS jadi configurable) |
-| Fase 4 — Undo/Redo | Perlu retest (lookup kolom NO berubah) |
-| Fase 5 — Warna + Filter | Perlu retest (kriteria filter ikut teks STATUS) |
-| Fase 6 — Export PDF/Excel | Perlu retest (kolom tanggal lewat resolver baru) |
-| Fase 7 — Audit + dokumentasi | Belum pernah live |
+| Fase 0 — Fondasi Config | Lulus live (23 Sep 2026) |
+| Fase 1 — Input, sort, border, merge | Lulus live (23 Sep 2026) |
+| Fase 2 — CRUD + auto-sync rekap | Lulus live (23 Sep 2026) |
+| Fase 3 — STATUS | Lulus live (23 Sep 2026) |
+| Fase 4 — Undo/Redo | Lulus live (23 Sep 2026) |
+| Fase 5 — Warna + Filter | Lulus live (23 Sep 2026) |
+| Fase 6 — Export PDF/Excel | Lulus live (23 Sep 2026) |
+| Fase 7 — Audit + dokumentasi | Sebagian — lihat tabelnya |
+| Fase 8A — Form input web app | Lulus live (23 Sep 2026) |
+| Fase 8B — Dashboard read-only | Lulus live (23 Sep 2026) |
+| Fase 8C — Omset & filter waktu | Lulus live (23 Sep 2026) |
+| Fase 8D — Penyesuaian ke file asli | Lulus live (23 Sep 2026) |
 
-**Kenapa hampir semuanya "perlu retest":** perbaikan F1/F2/#3 di Fase 7
-menyentuh 7 file dan mengubah cara kolom NO, teks STATUS, serta kolom RETUR
-diambil. Nilai default-nya identik dengan sebelumnya, jadi **kemungkinan besar
-tidak ada yang berubah perilakunya** di file PT SIB — tapi "kemungkinan besar"
-bukan "sudah diuji". Satu putaran regresi di file duplikat sudah cukup.
+Putaran retest ini menutup semua "perlu retest" yang menumpuk sejak Fase 7:
+perubahan F1/F2/#3, lalu perubahan besar di Fase 8D (batas data, rumus
+STATUS, kolom rumus) semuanya ikut teruji dalam 18 langkah itu.
 
 ---
 
@@ -51,20 +62,20 @@ bukan "sudah diuji". Satu putaran regresi di file duplikat sudah cukup.
 | `getHeaderRow()` | Lulus live | Header row 5/5/6/5 di PT SIB |
 | Sheet Config dibuat otomatis | Lulus live | |
 | Backfill key baru saat Setup | Lulus live | |
-| Key `col_*_no`, `col_retur_*`, `status_teks_*` | Perlu retest | Ditambahkan di Fase 7 |
+| Key `col_*_no`, `col_retur_*`, `status_teks_*` | Lulus live | Ditambahkan di Fase 7 |
 | Sheet Panduan di-generate dari Config | Belum pernah live | Dulu statis, sekarang dibuat ulang tiap Setup |
 
 ## Fase 1 — Input, Sort, Border, Merge
 
 | Fitur | Status | Catatan |
 |---|---|---|
-| `appendRow()` ke baris terbawah | Lulus live | Terbukti menulis ke baris 449 |
+| `appendRow()` ke baris data terakhir | Lulus live | Dulu menulis di baris 449 (bug 8D); sekarang tepat di bawah data |
 | `batchInsert()` satu invoice | Lulus live | |
 | `sortByDate()` desc | Lulus live | |
 | `sortByDate()` asc | Lulus live | |
 | Border otomatis | Lulus live | |
 | Unmerge + isi ulang saat sort | Lulus live | Permanen, tidak bisa dibatalkan |
-| Renumber kolom NO sesudah sort | Perlu retest | Sekarang lewat `col_*_no`, bukan literal "NO" |
+| Renumber kolom NO sesudah sort | Lulus live | Lewat `col_*_no`. **Catatan:** NO di file asli diisi per invoice, renumber tetap per baris |
 | Insert ikut resync rekap | Lulus live | Ditambahkan sesudah Fase 4 |
 
 ## Fase 2 — CRUD + Auto-sync Rekap
@@ -72,7 +83,7 @@ bukan "sudah diuji". Satu putaran regresi di file duplikat sudah cukup.
 | Fitur | Status | Catatan |
 |---|---|---|
 | `deleteRow()` + border | Lulus live | |
-| Renumber NO sesudah delete | Perlu retest | Sama seperti di atas |
+| Renumber NO sesudah delete | Lulus live | Sama seperti di atas |
 | `recalculateRekap()` satu barang | Lulus live | |
 | Auto-sync lewat `onEdit` | Lulus live | Termasuk kasus kode barang diubah (kode lama ikut dihitung ulang) |
 | SISA STOK = AWAL + MASUK + RETUR − KELUAR | Lulus live | Retur menambah stok |
@@ -84,10 +95,10 @@ bukan "sudah diuji". Satu putaran regresi di file duplikat sudah cukup.
 
 | Fitur | Status | Catatan |
 |---|---|---|
-| `calculateStatus_()` (`<=` batas) | Lulus live | Sama dengan min = perlu restok |
+| `calculateStatus_()` berbasis PACK | Lulus live | `INT(SISA STOK / ISI PER PACK) <= MIN STOK`, meniru rumus asli |
 | Pewarnaan cell STATUS | Lulus live | Hijau `#D9EAD3`, merah muda `#F4CCCC` |
-| Fallback saat MIN STOK kosong | Lulus live | |
-| Teks STATUS dari Config | Perlu retest | Sebelumnya hardcode "AMAN"/"PERLU RESTOK" |
+| MIN STOK kosong | Lulus live | Batas 0 -> AMAN. Yang jadi PERLU RESTOCK kalau ISI PER PACK kosong |
+| Teks STATUS dari Config | Lulus live | Terpakai sebagai `PERLU RESTOCK`, cocok dengan Excel asli |
 | Refresh Semua Status | Lulus live | Log progres tiap 50 barang |
 
 ## Fase 4 — Undo/Redo
@@ -101,7 +112,7 @@ bukan "sudah diuji". Satu putaran regresi di file duplikat sudah cukup.
 | Undo EDIT_FORM | Lulus live | |
 | Redo + hangusnya history lama | Lulus live | |
 | Batas 50 entry (FIFO) | Lulus live | |
-| Penolakan saat baris sudah berubah | Perlu retest | Pengecualian kolom NO sekarang lewat Config |
+| Penolakan saat baris sudah berubah | Lulus live | Pengecualian kolom NO sekarang lewat Config |
 | Undo COLORIZE | Lulus live | Ditambahkan di Fase 5 |
 
 ## Fase 5 — Warna + Filter
@@ -115,7 +126,7 @@ bukan "sudah diuji". Satu putaran regresi di file duplikat sudah cukup.
 | Sidebar Color Picker | Lulus live | |
 | Filter View per-user | Lulus live | Butuh Sheets Advanced Service |
 | Pembersihan basic filter lama | Lulus live | |
-| Kriteria filter ikut teks STATUS | Perlu retest | Sekarang membaca `status_teks_*` |
+| Kriteria filter ikut teks STATUS | Lulus live | Sekarang membaca `status_teks_*` |
 
 ## Fase 6 — Export
 
@@ -124,7 +135,7 @@ bukan "sudah diuji". Satu putaran regresi di file duplikat sudah cukup.
 | Export PDF | Lulus live | Landscape bila >8 kolom |
 | Export Excel satu sheet | Lulus live | Lewat spreadsheet sementara |
 | Spreadsheet asli tidak berubah | Lulus live | |
-| Filter tanggal | Perlu retest | Kolom tanggal sekarang lewat `columnNameFor_()` |
+| Filter tanggal | Lulus live | Kolom tanggal sekarang lewat `columnNameFor_()` |
 | Folder Drive `Export` | Lulus live | |
 | Nama file berstempel detik | Lulus live | Export berulang tidak saling menimpa |
 | Dialog Export + indikator loading | Lulus live | |
@@ -134,8 +145,8 @@ bukan "sudah diuji". Satu putaran regresi di file duplikat sudah cukup.
 | Fitur | Status | Catatan |
 |---|---|---|
 | Audit hardcode | Selesai | Tidak ada file/folder/spreadsheet ID hardcode; tidak ada nomor kolom data hardcode |
-| F1 — kolom NO configurable | Belum pernah live | Lulus simulasi |
-| F2 — teks STATUS configurable | Belum pernah live | Lulus simulasi |
+| F1 — kolom NO configurable  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
+| F2 — teks STATUS configurable  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
 | #3 — kolom RETUR terpisah | Belum pernah live | Lulus simulasi |
 | Panduan di-generate otomatis | Belum pernah live | Lulus simulasi |
 | Test reusability bisnis asing | **Menunggu Anda** | Lihat `REUSABILITY-TEST.md` |
@@ -187,14 +198,14 @@ nomor urut, `SAFE`/`REORDER` sebagai STATUS, dan empat baris header berbeda.
 
 | Fitur | Status | Catatan |
 |---|---|---|
-| Form input 1 transaksi (Masuk/Retur/Keluar) | Belum pernah live | Lulus simulasi |
-| Form input batch per invoice | Belum pernah live | Lulus simulasi |
-| Dropdown "Pilih Nama Kamu" dari `daftar_user` | Belum pernah live | Lulus simulasi |
+| Form input 1 transaksi (Masuk/Retur/Keluar)  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
+| Form input batch per invoice  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
+| Dropdown "Pilih Nama Kamu" dari `daftar_user`  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
 | Kode akses (`webapp_kode_akses`) aktif, default `gudang-4712` | Belum pernah live | Lulus simulasi — **ganti kodenya**, lihat catatan di bawah |
-| Nama penginput tercatat di ActionLog (`InputBy`) | Belum pernah live | Lulus simulasi |
+| Nama penginput tercatat di ActionLog (`InputBy`)  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
 | ActionLog lama (7 kolom) otomatis diperlebar | Belum pernah live | Lulus simulasi |
-| Undo tetap jalan untuk baris dari web app | Belum pernah live | Lulus simulasi |
-| Deploy web app | **Menunggu Anda** | Lihat README bagian "Fase 8A" |
+| Undo tetap jalan untuk baris dari web app  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
+| Deploy web app | Lulus live | Sudah di-deploy dan dipakai dari HP |
 
 ### Yang perlu Anda tes sendiri setelah deploy
 
@@ -238,11 +249,11 @@ yang keluar, ganti kodenya dan kabari yang lain.
 
 | Fitur | Status | Catatan |
 |---|---|---|
-| Satu URL, dua halaman (`?page=dashboard`) | Belum pernah live | Lulus simulasi |
-| Cards ringkasan (total, aman, perlu restok, transaksi hari ini) | Belum pernah live | Lulus simulasi |
+| Satu URL, dua halaman (`?page=dashboard`)  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
+| Cards ringkasan (total, aman, perlu restok, transaksi hari ini)  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
 | Donut chart AMAN vs PERLU RESTOK | Belum pernah live | Lulus simulasi |
 | Bar chart horizontal Top 10 stok tersedikit | Belum pernah live | Lulus simulasi |
-| Tabel "Perlu Restok Segera" (lengkap, bukan top 10) | Belum pernah live | Lulus simulasi |
+| Tabel "Perlu Restok Segera" (lengkap, bukan top 10)  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
 | Auto-refresh 5 menit + tombol refresh manual | Belum pernah live | Lulus simulasi |
 | Kode akses sama dengan Fase 8A | Belum pernah live | Lulus simulasi |
 | Link navigasi Input <-> Dashboard di kedua halaman | Belum pernah live | Lulus simulasi |
@@ -292,12 +303,12 @@ meyakinkan tapi salah, dan makin lama makin salah.
 
 | Fitur | Status | Catatan |
 |---|---|---|
-| Rumus disalin dari baris atas ke baris baru | Belum pernah live | Lulus simulasi |
-| Field PRICE / DISKON 1-3 di form Web App | Belum pernah live | Lulus simulasi |
-| Dropdown SALES di form (manual & batch) | Belum pernah live | Lulus simulasi |
-| Kartu Omset Keseluruhan (format Rupiah) | Belum pernah live | Lulus simulasi |
+| Rumus disalin dari baris atas ke baris baru  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
+| Field PRICE / DISKON 1-3 di form Web App  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
+| Dropdown SALES di form (manual & batch)  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
+| Kartu Omset Keseluruhan (format Rupiah)  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
 | Rincian omset per sales | Belum pernah live | Lulus simulasi |
-| Filter waktu Hari Ini / Minggu Ini / Bulan Ini / Semua | Belum pernah live | Lulus simulasi |
+| Filter waktu Hari Ini / Minggu Ini / Bulan Ini / Semua  Lulus live | Lulus simulasi + dikonfirmasi 23 Sep 2026 |
 | Line chart tren omset per minggu | Belum pernah live | Lulus simulasi |
 
 ### Cara kerja kolom rumus
@@ -447,6 +458,18 @@ Kolom itu sekarang didaftarkan di `col_<sheet>_formula`, jadi form tidak
 menulisinya dan rumusnya ikut tersalin ke baris baru. Di form, kotak Nama
 Barang jadi non-aktif dengan keterangan bahwa isinya datang dari rumus.
 
+### Status
+
+| Fitur | Status | Catatan |
+|---|---|---|
+| Batas data dari kolom kode (bukan `getLastRow()`) | Lulus live | Baris baru mendarat tepat di bawah data |
+| Baris TOTAL dikecualikan dari insert/sort/border/hapus | Lulus live | TOTAL tidak keganggu, nilainya ikut bertambah |
+| Sisip baris kalau tujuan terisi | Lulus live | |
+| Rumus kolom uang disalin ke baris baru | Lulus live | PRICE/DISKON/AMOUNT KANTOR/ANZAR/SALES B benar |
+| NAMA BARANG otomatis dari VLOOKUP | Lulus live | Form tidak lagi menulisinya |
+| STATUS berbasis PACK, teks `PERLU RESTOCK` | Lulus live | Cocok dengan Excel asli |
+| Gerbang konversi: SISA STOK bukan `#NAME?` | Lulus live | `Table1[[#This Row]...]` selamat saat Save as |
+
 ### Key Config yang berubah / baru
 
 | Key | Nilai untuk file PT SIB |
@@ -462,7 +485,11 @@ Barang jadi non-aktif dengan keterangan bahwa isinya datang dari rumus.
 
 ---
 
-## TESTING MENYELURUH DI FILE DUPLIKAT BARU
+## TESTING MENYELURUH DI FILE DUPLIKAT BARU — SUDAH DIJALANKAN (23 Sep 2026, lulus semua)
+
+Sudah dijalankan dan **lulus 18 dari 18**. Bagian ini disimpan sebagai
+prosedur regresi: jalankan ulang urutan yang sama setiap kali ada perubahan
+besar berikutnya.
 
 File duplikat yang lama sudah tidak bisa dipercaya: baris uji coba ada di
 sekitar baris 444 BARANG MASUK, dan rumus REKAP kemungkinan sudah tertimpa
@@ -516,3 +543,46 @@ angka. **Buang, jangan diperbaiki.**
   pada input pertama. Ini sesuai persetujuan Fase 1, tapi jumlahnya banyak.
 - **Baris lama yang rumusnya sudah mati** (korban bug sejak Fase 1) tidak
   diperbaiki otomatis.
+
+
+---
+
+## Sisa yang belum diuji
+
+Retest 23 Sep 2026 menutup 18 langkah, tapi tidak semuanya. Yang berikut ini
+**belum pernah dijalankan di Google Sheets sungguhan** — bukan gagal, cuma
+belum kesentuh. Kebanyakan cuma butuh beberapa detik untuk dicek.
+
+| Belum diuji | Cara cek cepat |
+|---|---|
+| Grafik donat & bar chart di dashboard | Buka dashboard, pastikan dua grafik atas tergambar (bukan kotak kosong) |
+| Line chart tren omset per minggu | Di dashboard yang sama, lihat grafik garis paling bawah |
+| Rincian omset per sales | Kartu di bawah kartu Omset — cek jumlah tiap sales = total |
+| Auto-refresh 5 menit | Biarkan dashboard terbuka 5 menit, lihat jam "Diperbarui" berubah |
+| Link navigasi Input <-> Dashboard | Klik tab di atas, bolak-balik dua halaman |
+| Kode akses web app | Buka dashboard di mode incognito, pastikan diminta kode |
+| Migrasi ActionLog 7 -> 8 kolom | Hanya relevan kalau ActionLog sudah ada sebelum Fase 8A |
+| Sheet Panduan di-generate ulang | Jalankan Setup, lihat sheet Panduan terisi sesuai Config |
+| `col_retur_*` terpisah dari `col_masuk_*` | Tidak relevan untuk PT SIB — RETUR pakai kolom yang sama |
+| Reusability bisnis asing | Lihat `REUSABILITY-TEST.md`, butuh spreadsheet terpisah |
+
+Grafik-grafik itu satu kelompok risikonya sama: **Chart.js diambil dari CDN**.
+Kalau jaringan kantor memblokir `cdn.jsdelivr.net`, ketiganya diganti
+keterangan sementara angka di kartu dan tabel tetap benar. Sekali lihat
+dashboard sudah cukup membuktikan ketiganya.
+
+---
+
+## Yang masih terbuka, di luar pengujian
+
+1. **Kolom NO diisi per invoice**, bukan per baris (B7=1 menutupi baris 7-8,
+   B9=2). `renumberNoColumn_` saat hapus baris menomori ulang per baris, jadi
+   pola per-invoice itu akan berubah. Belum ada instruksi untuk mengubahnya.
+2. **88 merge vertikal** di kolom NO BARANG KELUAR akan di-unmerge permanen
+   pada input pertama.
+3. **Baris lama korban bug Fase 1** (rumusnya terlanjur kosong) tidak
+   diperbaiki otomatis. Perbaikannya sekali jalan di spreadsheet: copy satu
+   sel rumus yang utuh, paste ke kolom rumus di baris-baris yang kosong.
+4. **Apakah file produksi asli ikut kena bug baris 444 / rumus tertimpa,
+   atau cuma file duplikat testing** — belum terjawab. Kalau file asli pernah
+   dipakai dengan script versi lama, perlu dicek.
