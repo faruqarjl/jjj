@@ -78,8 +78,23 @@ function getWebAppData() {
     ],
     items: getWebAppItems_(),
     sales: getWebAppSales_(),
-    fieldKeluar: webAppKeluarFields_(config)
+    fieldKeluar: webAppKeluarFields_(config),
+    namaOtomatis: webAppAutoNameSheets_(config)
   };
+}
+
+/**
+ * Per transaction type, whether NAMA BARANG fills itself by formula. The
+ * form shows the name read-only for those, so nobody types into a column
+ * their entry will not reach.
+ */
+function webAppAutoNameSheets_(config) {
+  const hasil = {};
+  ['masuk', 'retur', 'keluar'].forEach(function (jenis) {
+    const sheetName = normalizeText_(config['sheet_barang_' + jenis]);
+    hasil[jenis] = sheetName !== '' && webAppWritableNameColumn_(sheetName, config) === null;
+  });
+  return hasil;
 }
 
 /**
@@ -98,6 +113,30 @@ function webAppKeluarFields_(config) {
   });
 
   return fields;
+}
+
+/**
+ * The item-name column, but only when it is safe for the form to write it.
+ *
+ * On these sheets NAMA BARANG (and TBL_MASUK on masuk/retur) is
+ * `=IFERROR(VLOOKUP(kode,'REKAP BARANG'!B:C,2,FALSE),"")`. Writing a typed
+ * name into that cell replaces the formula with text, and the next time the
+ * catalogue is corrected the row keeps the stale name. Listing the column in
+ * col_<sheet>_formula makes it read-only to the form, and the copy-down
+ * supplies the lookup instead.
+ */
+function webAppWritableNameColumn_(sheetName, config) {
+  const nama = normalizeText_(columnNameFor_(sheetName, 'nama', config));
+  if (nama === '') return null;
+
+  const rumus = formulaColumnNames_(sheetName, config).map(function (name) {
+    return name.toLowerCase();
+  });
+  if (rumus.indexOf(nama.toLowerCase()) !== -1) {
+    Logger.log('webAppWritableNameColumn_(): "%s" kolom rumus — form tidak menulisinya.', nama);
+    return null;
+  }
+  return nama;
 }
 
 /** Sales names for the dropdown, from daftar_sales. */
@@ -165,7 +204,10 @@ function submitWebAppInput(payload) {
   row[columnNameFor_(sheetName, 'kode', config)] = kode;
   row[columnNameFor_(sheetName, 'jumlah', config)] = jumlah;
 
-  const namaColumn = columnNameFor_(sheetName, 'nama', config);
+  // NAMA BARANG is a VLOOKUP on the item code in this workbook, so the form
+  // must not type over it — the inherited formula fills it. Only a sheet
+  // that does NOT list the name column as a formula column gets it written.
+  const namaColumn = webAppWritableNameColumn_(sheetName, config);
   if (namaColumn) row[namaColumn] = normalizeText_(request.nama);
 
   if (jenis === 'keluar') {
@@ -216,7 +258,7 @@ function submitWebAppBatch(payload) {
     tgl: columnNameFor_(sheetName, 'tgl', config),
     invoice: columnNameFor_(sheetName, 'invoice', config),
     kode: columnNameFor_(sheetName, 'kode', config),
-    nama: columnNameFor_(sheetName, 'nama', config),
+    nama: webAppWritableNameColumn_(sheetName, config),
     jumlah: columnNameFor_(sheetName, 'jumlah', config)
   };
 
@@ -498,7 +540,7 @@ function readDashboardItems_(sheetName, config) {
     return [];
   }
 
-  const rowCount = table.sheet.getLastRow() - table.headerRow;
+  const rowCount = getDataBounds_(table, config).dataRowCount;
   if (rowCount < 1) return [];
 
   const index = {};
@@ -669,7 +711,7 @@ function readTransactionRows_(jenis, config, timeZone) {
   const omsetColumns = resolveOmsetColumns_(sheetName, table, config);
   const salesIndex = resolveOptionalColumn_(sheetName, table, 'sales', config);
 
-  const rowCount = table.sheet.getLastRow() - table.headerRow;
+  const rowCount = getDataBounds_(table, config).dataRowCount;
   const result = {
     sheet: sheetName,
     terbaca: true,

@@ -339,6 +339,7 @@ const CONFIG_KEY_NOTES = {
   col_keluar_diskon2: 'Kolom diskon kedua. Kosongkan kalau tidak dipakai.',
   col_keluar_diskon3: 'Kolom diskon ketiga. Kosongkan kalau tidak dipakai.',
   col_keluar_formula: 'Kolom yang isinya RUMUS milik spreadsheet (mis. AMOUNT KANTOR, ANZAR, SALES B). Script tidak pernah menulis angka ke kolom ini \u2014 rumusnya disalin dari baris tepat di atasnya setiap kali ada baris baru. Pisahkan dengan koma. Kosongkan kalau sheet Anda tidak punya kolom rumus.',
+  sisa_dus_teks_error: 'Teks SISA DUS kalau ISI PER DUS / ISI PER PACK kosong atau nol. Default "0 DUS 0 PACK", mengikuti IFERROR di rumus asli.',
   daftar_sales: 'Pilihan nama sales di dropdown form input barang keluar, dipisah koma. Isinya harus sama persis dengan yang dikenali rumus di kolom AMOUNT/ANZAR/SALES B.',
   col_keluar_omset: 'Kolom rupiah di sheet barang keluar yang dijumlah jadi omset. Boleh lebih dari satu, dipisah koma — nilainya dijumlah apa adanya, PRICE dan DISKON tidak dihitung ulang. Kosongkan kalau bisnis Anda tidak memakai omset.',
   col_keluar_sales: 'Kolom berisi NAMA sales di sheet barang keluar, dipakai untuk rincian omset per sales. Kosongkan kalau tidak ada.',

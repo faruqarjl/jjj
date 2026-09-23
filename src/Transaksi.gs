@@ -25,13 +25,13 @@ function appendRow(sheetName, rowDataObject) {
     rowValues[columnIndex - 1] = rowDataObject[columnHeaderName];
   });
 
-  const targetRow = table.firstDataRow > table.sheet.getLastRow()
-    ? table.firstDataRow
-    : table.sheet.getLastRow() + 1;
+  const spot = resolveAppendRow_(table, getConfig());
+  if (spot.sisipkan) table.sheet.insertRowsBefore(spot.row, 1);
+  const targetRow = spot.row;
 
   Logger.log(
-    'appendRow("%s"): headerRow=%s width=%s -> writing row %s',
-    sheetName, table.headerRow, table.width, targetRow
+    'appendRow("%s"): headerRow=%s width=%s -> writing row %s (disisipkan: %s)',
+    sheetName, table.headerRow, table.width, targetRow, spot.sisipkan
   );
   table.sheet.getRange(targetRow, 1, 1, rowValues.length).setValues([rowValues]);
 
@@ -123,6 +123,123 @@ function getTableInfo_(sheetName) {
 }
 
 /**
+ * Where the real data ends, which is NOT getLastRow().
+ *
+ * These sheets carry hundreds of pre-filled rows whose only content is a
+ * VLOOKUP returning "" — and BARANG KELUAR ends with a TOTAL row of SUM
+ * formulas. getLastRow() counts every one of them, so appending at
+ * getLastRow() + 1 dropped new rows hundreds of lines below the data, and
+ * underneath the TOTAL row whose SUM range then never reached them.
+ *
+ * The item-code column decides instead: the last row that names an item is
+ * the last row of data. Formula-only rows have no code, and neither does a
+ * TOTAL row, so both fall outside every range derived from here.
+ *
+ * Falls back to getLastRow() for a sheet whose code column Config doesn't
+ * describe, which keeps behaviour unchanged for anything not a transaction
+ * or recap sheet.
+ */
+function getDataBounds_(table, config) {
+  const sheetName = table.sheet.getName();
+  const sheetLastRow = table.sheet.getLastRow();
+
+  if (sheetLastRow <= table.headerRow) {
+    return { lastDataRow: table.headerRow, dataRowCount: 0, akurat: true };
+  }
+
+  const fallback = {
+    lastDataRow: sheetLastRow,
+    dataRowCount: sheetLastRow - table.headerRow,
+    akurat: false
+  };
+
+  const kodeName = columnNameFor_(sheetName, 'kode', config || getConfig());
+  if (!kodeName) return fallback;
+
+  let kodeIndex;
+  try {
+    kodeIndex = resolveColumnIndex_(table.headers, kodeName, sheetName, table.headerRow);
+  } catch (err) {
+    Logger.log('getDataBounds_("%s"): kolom kode tidak ketemu — pakai getLastRow(). %s',
+      sheetName, err.message);
+    return fallback;
+  }
+
+  const codes = table.sheet
+    .getRange(table.firstDataRow, kodeIndex, sheetLastRow - table.headerRow, 1)
+    .getValues();
+
+  let lastDataRow = table.headerRow;
+  for (let i = codes.length - 1; i >= 0; i--) {
+    if (normalizeText_(codes[i][0]) !== '') {
+      lastDataRow = table.firstDataRow + i;
+      break;
+    }
+  }
+
+  if (lastDataRow < sheetLastRow) {
+    Logger.log(
+      'getDataBounds_("%s"): data berakhir di baris %s, getLastRow()=%s ' +
+      '(%s baris di bawahnya cuma rumus kosong atau baris TOTAL).',
+      sheetName, lastDataRow, sheetLastRow, sheetLastRow - lastDataRow
+    );
+  }
+
+  return { lastDataRow: lastDataRow, dataRowCount: lastDataRow - table.headerRow, akurat: true };
+}
+
+/**
+ * The row a new entry belongs on, and whether something has to be pushed
+ * down to make space.
+ *
+ * Writing straight over the row after the data is right when that row is a
+ * blank formula row — the formulas there are the ones we want anyway. It is
+ * wrong when the row holds a TOTAL, so that case inserts instead, which also
+ * lets Sheets widen the SUM ranges to include the new rows.
+ */
+function resolveAppendRow_(table, config) {
+  const bounds = getDataBounds_(table, config);
+  const row = Math.max(table.firstDataRow, bounds.lastDataRow + 1);
+  const sisipkan = row <= table.sheet.getLastRow() && rowHasContent_(table, row);
+
+  if (sisipkan) {
+    Logger.log(
+      'resolveAppendRow_("%s"): baris %s sudah terisi (kemungkinan baris TOTAL) — baris baru disisipkan di atasnya.',
+      table.sheet.getName(), row
+    );
+  }
+  return { row: row, sisipkan: sisipkan, bounds: bounds };
+}
+
+/**
+ * Whether a row holds something a new entry must not overwrite.
+ *
+ * The pre-filled rows are not blank on screen: `=IF($O10="ANZAR",...)` shows
+ * 0 and a VLOOKUP shows "". Judging by displayed values alone would call
+ * every one of them occupied and insert a row each time, so the waiting
+ * formulas would never be used. What counts is whether anything was *typed*:
+ * a cell that is non-empty and is not the output of a formula.
+ *
+ * A TOTAL row qualifies through its "TOTAL" label. As a second guard, the
+ * sheet's very last row is treated as occupied whenever it contains any
+ * formula, which covers a footer of bare SUMs carrying no label. Both guards
+ * only ever cause an insert, which is never destructive.
+ */
+function rowHasContent_(table, row) {
+  const range = table.sheet.getRange(row, 1, 1, table.width);
+  const values = range.getValues()[0];
+  const formulas = range.getFormulas()[0];
+
+  const diketik = values.some(function (value, i) {
+    return normalizeText_(value) !== '' && normalizeText_(formulas[i]) === '';
+  });
+  if (diketik) return true;
+
+  const adaRumus = formulas.some(function (formula) { return normalizeText_(formula) !== ''; });
+  return adaRumus && row >= table.sheet.getLastRow();
+}
+
+/**
  * Appends several rows in one batch (one setValues() call, no per-row
  * appendRow loop) — e.g. every line item of one invoice in BARANG KELUAR.
  * Returns the array of 1-indexed rows that were written.
@@ -150,13 +267,13 @@ function batchInsert(sheetName, arrayOfRowDataObjects) {
   });
 
   const sheet = table.sheet;
-  const startRow = table.firstDataRow > sheet.getLastRow()
-    ? table.firstDataRow
-    : sheet.getLastRow() + 1;
+  const spot = resolveAppendRow_(table, config);
+  if (spot.sisipkan) sheet.insertRowsBefore(spot.row, rows.length);
+  const startRow = spot.row;
 
   Logger.log(
-    'batchInsert("%s"): headerRow=%s -> writing %s row(s) from row %s',
-    sheetName, table.headerRow, rows.length, startRow
+    'batchInsert("%s"): headerRow=%s -> writing %s row(s) from row %s (disisipkan: %s)',
+    sheetName, table.headerRow, rows.length, startRow, spot.sisipkan
   );
   sheet.getRange(startRow, 1, rows.length, table.width).setValues(rows);
 
@@ -233,7 +350,7 @@ function sortByDate(sheetName, order) {
 
   const table = getTableInfo_(sheetName);
   const dateColumnIndex = getColumnIndex(sheetName, dateColumnName, table.headerRow);
-  const dataRowCount = table.sheet.getLastRow() - table.headerRow;
+  const dataRowCount = getDataBounds_(table, config).dataRowCount;
 
   Logger.log(
     'sortByDate("%s", "%s"): headerRow=%s dataRows=%s sortColumn=%s',
@@ -343,7 +460,7 @@ function renumberNoColumn_(table) {
   const noIndex = findNoColumnIndex_(table.sheet.getName(), table.headers);
   if (noIndex === -1) return 0;
 
-  const rowCount = table.sheet.getLastRow() - table.headerRow;
+  const rowCount = getDataBounds_(table).dataRowCount;
   if (rowCount < 1) return 0;
 
   const numbers = [];
@@ -365,9 +482,9 @@ function renumberNoColumn_(table) {
  * it's named for manual fixing instead. Returns how many merges were broken.
  */
 function normalizeMergedCells_(table) {
-  const lastRow = table.sheet.getLastRow();
-  const dataRowCount = lastRow - table.headerRow;
+  const dataRowCount = getDataBounds_(table).dataRowCount;
   if (dataRowCount < 1) return 0;
+  const lastRow = table.headerRow + dataRowCount;
 
   const dataRange = table.sheet.getRange(table.firstDataRow, 1, dataRowCount, table.width);
   const merges = dataRange.getMergedRanges();
@@ -422,8 +539,9 @@ function normalizeMergedCells_(table) {
  */
 function applyBorders(sheetName) {
   const table = getTableInfo_(sheetName);
-  const lastRow = table.sheet.getLastRow();
-  const rowCount = lastRow - table.headerRow + 1;
+  // Header plus real data only — bordering down to getLastRow() would frame
+  // hundreds of blank formula rows and the TOTAL row along with them.
+  const rowCount = getDataBounds_(table).dataRowCount + 1;
   if (rowCount < 1) return;
 
   table.sheet
@@ -484,6 +602,17 @@ function copyFormulaColumns_(sheetName, startRow, rowCount, config) {
 
   const table = getTableInfo_(sheetName);
   const sourceRow = startRow - 1;
+  const bounds = getDataBounds_(table, settings);
+
+  // Never copy from a TOTAL row: its SUM would be pasted into a data row and
+  // read as if it were that line's amount.
+  if (sourceRow > bounds.lastDataRow) {
+    Logger.log(
+      'copyFormulaColumns_("%s"): baris %s di luar data (kemungkinan baris TOTAL) — rumus tidak disalin.',
+      sheetName, sourceRow
+    );
+    return [];
+  }
   if (sourceRow < table.firstDataRow) {
     Logger.log(
       'copyFormulaColumns_("%s"): baris %s tidak punya baris data di atasnya — rumus tidak disalin.',

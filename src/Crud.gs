@@ -16,7 +16,9 @@
  */
 function deleteRow(sheetName, rowIndex) {
   const table = getTableInfo_(sheetName);
-  const lastRow = table.sheet.getLastRow();
+  // Bounded to the real data, so the TOTAL row and the blank formula rows
+  // below it cannot be deleted by number.
+  const lastRow = getDataBounds_(table, getConfig()).lastDataRow;
   const row = Number(rowIndex);
 
   if (!isFinite(row) || row % 1 !== 0) {
@@ -32,7 +34,8 @@ function deleteRow(sheetName, rowIndex) {
   if (row > lastRow) {
     return {
       success: false,
-      message: 'Baris ' + row + ' di luar data sheet "' + sheetName + '" (baris terakhir: ' + lastRow + ').'
+      message: 'Baris ' + row + ' di luar data sheet "' + sheetName + '" (baris data terakhir: ' +
+        lastRow + '). Baris di bawahnya bukan data — hanya rumus kosong atau baris TOTAL.'
     };
   }
 
@@ -118,12 +121,12 @@ function recalculateRekap(kodeBarang) {
 function computeRekapValues_(input) {
   const sisaStok = input.stokAwal + input.masuk + input.retur - input.keluar;
   const sisaDus = formatSisaDus_(sisaStok, input.isiDus, input.isiPack);
-  const status = calculateStatus_(sisaStok, input.minStok);
+  const status = calculateStatus_(sisaStok, input.minStok, input.isiPack);
 
   return {
     sisaStok: sisaStok,
     sisaDus: sisaDus,
-    sisaDusText: sisaDus === null ? statusTexts_().tidakDiketahui : sisaDus,
+    sisaDusText: sisaDus === null ? sisaDusFallback_() : sisaDus,
     status: status,
     warna: statusColour_(status)
   };
@@ -132,14 +135,15 @@ function computeRekapValues_(input) {
 function logRekapWarnings_(kode, input, values) {
   if (values.sisaDus === null) {
     Logger.log(
-      'recalculateRekap("%s"): ISI PER DUS (%s) atau ISI PER PACK (%s) kosong/nol — SISA DUS diisi "N/A".',
+      'recalculateRekap("%s"): ISI PER DUS (%s) atau ISI PER PACK (%s) kosong/nol — SISA DUS diisi teks cadangan.',
       kode, input.isiDus, input.isiPack
     );
   }
-  if (values.status === statusTexts_().tidakDiketahui) {
+  if (!(toNumber_(input.isiPack) > 0)) {
     Logger.log(
-      'recalculateRekap("%s"): MIN STOK (%s) kosong/nol — STATUS diisi "N/A".',
-      kode, input.minStok
+      'recalculateRekap("%s"): ISI PER PACK (%s) kosong/nol — STATUS diisi "%s", ' +
+      'mengikuti IFERROR di rumus asli.',
+      kode, input.isiPack, statusTexts_().perluRestok
     );
   }
   Logger.log(
@@ -171,7 +175,7 @@ function recalculateAllRekap() {
   const config = getConfig();
   const sheetName = getConfigValue('sheet_rekap_barang');
   const table = getTableInfo_(sheetName);
-  const rowCount = table.sheet.getLastRow() - table.headerRow;
+  const rowCount = getDataBounds_(table, config).dataRowCount;
 
   const summary = { total: 0, updated: 0, skipped: 0, failed: 0, failures: [] };
   if (rowCount < 1) return summary;
@@ -284,7 +288,7 @@ function buildTransaksiTotals_(sheetName, config) {
   if (!columns) return {};
 
   const table = getTableInfo_(sheetName);
-  const rowCount = table.sheet.getLastRow() - table.headerRow;
+  const rowCount = getDataBounds_(table, config).dataRowCount;
   if (rowCount < 1) return {};
 
   const kodeIndex = resolveColumnIndex_(table.headers, columns.kode, sheetName, table.headerRow) - 1;
@@ -316,6 +320,16 @@ function buildTransaksiTotals_(sheetName, config) {
  * is "-1 DUS 0PACK", i.e. -12 + 7) instead of yielding a negative pack
  * count the way JavaScript's remainder operator would.
  */
+/**
+ * What SISA DUS shows when it cannot be computed. The workbook's own
+ * formula ends in IFERROR(..., "0 DUS 0 PACK"), so that is the default
+ * rather than the "N/A" this used to write.
+ */
+function sisaDusFallback_() {
+  const configured = normalizeText_(getConfig().sisa_dus_teks_error);
+  return configured === '' ? '0 DUS 0 PACK' : configured;
+}
+
 function formatSisaDus_(sisaStok, isiDus, isiPack) {
   if (!(isiDus > 0) || !(isiPack > 0)) return null;
 
@@ -330,7 +344,7 @@ function findRekapRow_(kodeBarang) {
   const config = getConfig();
   const sheetName = getConfigValue('sheet_rekap_barang');
   const table = getTableInfo_(sheetName);
-  const rowCount = table.sheet.getLastRow() - table.headerRow;
+  const rowCount = getDataBounds_(table, config).dataRowCount;
   if (rowCount < 1) return null;
 
   const kodeColumn = getColumnIndex(sheetName, config.col_rekap_kode, table.headerRow);
@@ -361,7 +375,7 @@ function sumTransaksi_(sheetName, kodeBarang, config) {
   if (!columns) return 0;
 
   const table = getTableInfo_(sheetName);
-  const rowCount = table.sheet.getLastRow() - table.headerRow;
+  const rowCount = getDataBounds_(table, config).dataRowCount;
   if (rowCount < 1) return 0;
 
   const kodeIndex = getColumnIndex(sheetName, columns.kode, table.headerRow) - 1;
@@ -458,7 +472,7 @@ function getRekapItems() {
   const config = getConfig();
   const sheetName = getConfigValue('sheet_rekap_barang');
   const table = getTableInfo_(sheetName);
-  const rowCount = table.sheet.getLastRow() - table.headerRow;
+  const rowCount = getDataBounds_(table, config).dataRowCount;
   if (rowCount < 1) return [];
 
   const values = table.sheet.getRange(table.firstDataRow, 1, rowCount, table.width).getValues();

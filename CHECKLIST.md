@@ -159,7 +159,7 @@ Disepakati saat audit Fase 7 — didokumentasikan, tidak diperbaiki:
 
 ## Cakupan simulasi
 
-11 suite, 810 pemeriksaan, semua hijau:
+12 suite, 870 pemeriksaan, semua hijau:
 
 | Suite | Cakupan | Jumlah |
 |---|---|---|
@@ -174,6 +174,7 @@ Disepakati saat audit Fase 7 — didokumentasikan, tidak diperbaiki:
 | `harness9` | Form web app (Fase 8A) | 78 |
 | `harness10` | Dashboard read-only (Fase 8B) | 93 |
 | `harness11` | Kolom rumus, form harga/sales, omset (Fase 8C) | 98 |
+| `harness12` | **Bentuk file asli PT SIB** (baris rumus kosong, baris TOTAL) | 52 |
 
 `harness8` yang paling relevan untuk reusability: sheet berbahasa Inggris, nama
 kolom berbeda di tiap sheet, RETUR punya kolom sendiri, `SEQ`/`LINE` sebagai
@@ -371,3 +372,147 @@ kartu itu diberi judul terpisah "Posisi Stok Saat Ini" supaya tidak rancu.
 
 **Grafik tren juga tidak ikut filter waktu** — gunanya justru membandingkan
 antar minggu, jadi selalu menampilkan beberapa minggu terakhir.
+
+
+---
+
+## Fase 8D — Penyesuaian ke struktur file asli
+
+Berdasarkan audit isi `.xlsm` PT SIB. Keempat hal ini bukan penyempurnaan —
+tiga di antaranya memperbaiki kerusakan yang sudah aktif terjadi.
+
+### 1. Baris baru sempat mendarat di tempat yang salah (PALING PARAH)
+
+`getLastRow()` menghitung sel berisi rumus sebagai "ada isinya", walaupun
+hasilnya `""`. File asli punya ratusan baris kosong yang sudah diisi rumus:
+
+| Sheet | Baris data asli | `getLastRow()` | Dulu ditulis di | Sekarang |
+|---|---|---|---|---|
+| BARANG MASUK | 18 | 443 | **444** | 19 |
+| BARANG RETUR | 1 | 443 | **444** | 7 |
+| BARANG KELUAR | 121 | 279 (baris TOTAL) | **280**, di bawah TOTAL | 128 |
+
+Sekarang batas data ditentukan **kolom kode**: baris terakhir yang menyebut
+kode barang adalah baris data terakhir. Baris rumus kosong dan baris TOTAL
+tidak punya kode, jadi otomatis di luar semua rentang — insert, sort, border,
+hapus, renumber, dan copy-formula.
+
+Kalau baris tujuan ternyata memang terisi (baris TOTAL), barisnya
+**disisipkan** dengan `insertRowsBefore`, sehingga TOTAL terdorong ke bawah
+dan Google Sheets melebarkan sendiri rentang `=SUM(...)`-nya.
+
+Yang dianggap "terisi" bukan sekadar sel tidak kosong, tapi **sel yang
+diketik** — non-kosong dan bukan hasil rumus. Kalau tidak begitu, baris rumus
+kosong (yang menampilkan `0`) akan dikira terisi dan rumus yang sudah siap di
+situ tidak akan pernah terpakai.
+
+### 2. STATUS sekarang meniru rumus asli
+
+```
+Rumus asli : IFERROR(IF(INT(SISA STOK / ISI PER PACK) <= MIN STOK,
+                        "PERLU RESTOCK", "AMAN"), "PERLU RESTOCK")
+```
+
+Yang berubah:
+
+- **MIN STOK dihitung dalam PACK.** Stok dibagi ISI PER PACK dulu. Versi lama
+  membandingkan SISA STOK langsung ke MIN STOK — terlalu banyak yang lolos
+  sebagai aman.
+- **Teksnya `PERLU RESTOCK`** (pakai C). Default `status_teks_perlu_restok`
+  ikut berubah.
+- **Tidak ada N/A lagi.** MIN STOK kosong berarti batasnya 0, jadi AMAN
+  selama stoknya ada. Yang jatuh ke PERLU RESTOCK justru kalau ISI PER PACK
+  kosong — itu pembagian gagal, dan `IFERROR` di rumus asli memang
+  mengarahkannya ke PERLU RESTOCK.
+- **SISA DUS** kalau gagal dihitung sekarang `0 DUS 0 PACK`, mengikuti
+  `IFERROR` rumus aslinya, bukan `N/A`. Bisa diubah lewat key
+  `sisa_dus_teks_error`.
+
+**RETUR tetap menambah stok**, sesuai keputusan Fase 2. Ini memang **beda
+dari file Excel asli** — di sana kolom RETUR di REKAP kosong tanpa rumus, jadi
+retur tidak pernah masuk hitungan. Perbedaan ini disengaja.
+
+### 3. `daftar_sales` jadi tiga
+
+Dropdown SALES di file asli sumbernya `$L$6:$N$6`, yaitu header ketiga kolom
+uangnya: **AMOUNT KANTOR, ANZAR, SALES B**.
+
+### 4. NAMA BARANG tidak lagi ditulis form
+
+Di ketiga sheet transaksi, kolom nama berisi
+`=IFERROR(VLOOKUP(kode,'REKAP BARANG'!B:C,2,FALSE),"")`. Di BARANG MASUK dan
+RETUR header-nya **`TBL_MASUK`**, bukan `NAMA BARANG`.
+
+Kolom itu sekarang didaftarkan di `col_<sheet>_formula`, jadi form tidak
+menulisinya dan rumusnya ikut tersalin ke baris baru. Di form, kotak Nama
+Barang jadi non-aktif dengan keterangan bahwa isinya datang dari rumus.
+
+### Key Config yang berubah / baru
+
+| Key | Nilai untuk file PT SIB |
+|---|---|
+| `status_teks_perlu_restok` | `PERLU RESTOCK` |
+| `sisa_dus_teks_error` | `0 DUS 0 PACK` |
+| `daftar_sales` | `AMOUNT KANTOR, ANZAR, SALES B` |
+| `col_masuk_nama` | `TBL_MASUK` |
+| `col_retur_nama` | `TBL_MASUK` |
+| `col_masuk_formula` | `TBL_MASUK` |
+| `col_retur_formula` | `TBL_MASUK` |
+| `col_keluar_formula` | `NAMA BARANG, AMOUNT KANTOR, ANZAR, SALES B` |
+
+---
+
+## TESTING MENYELURUH DI FILE DUPLIKAT BARU
+
+File duplikat yang lama sudah tidak bisa dipercaya: baris uji coba ada di
+sekitar baris 444 BARANG MASUK, dan rumus REKAP kemungkinan sudah tertimpa
+angka. **Buang, jangan diperbaiki.**
+
+### Persiapan
+
+1. Dari `.xlsm` asli: **File > Save as > Google Sheets** (bukan dari duplikat lama).
+2. **Sebelum menyentuh apa pun**, cek dulu hasil konversinya:
+   - Buka REKAP BARANG, klik sel di kolom SISA STOK. Rumusnya memakai
+     `Table1[[#This Row],[...]]` — sintaks Excel yang tidak ada di Google
+     Sheets. Pastikan tidak jadi `#NAME?` atau `#REF!`. **Kalau rusak, berhenti
+     dan kabari saya** — sisa pengujian tidak ada gunanya.
+   - Cek satu sel di kolom ANZAR BARANG KELUAR, pastikan rumusnya utuh.
+   - Makro VBA **pasti hilang** — Google Sheets tidak menjalankan VBA.
+3. Pasang script, jalankan **Setup**, lalu isi sheet Config sesuai tabel key
+   di atas.
+4. Catat dulu angka pembanding: SISA STOK dan STATUS untuk 3 barang, serta
+   isi baris TOTAL di BARANG KELUAR.
+
+### Urutan tes
+
+| # | Fase | Yang dites | Yang harus terjadi |
+|---|---|---|---|
+| 1 | 8D | Input 1 baris lewat form | Mendarat **tepat di bawah data**, bukan baris 444 |
+| 2 | 8D | Lihat kolom ANZAR baris baru | Berisi **rumus**, bukan angka; hasilnya benar |
+| 3 | 8D | Lihat kolom NAMA BARANG baris baru | Terisi VLOOKUP, bukan ketikan |
+| 4 | 8D | Cek baris TOTAL | Masih di bawah, nilainya **termasuk** baris baru |
+| 5 | 1 | Urutkan Tanggal | Baris TOTAL tidak ikut tersortir |
+| 6 | 1 | Border | Tidak membingkai ratusan baris kosong |
+| 7 | 2 | Hapus baris data | Berhasil; NO dirapikan |
+| 8 | 2 | Hapus nomor baris TOTAL | **Ditolak** dengan pesan jelas |
+| 9 | 3 | Refresh Semua Status | STATUS = `PERLU RESTOCK`/`AMAN`, dihitung per PACK |
+| 10 | 3 | Bandingkan dengan catatan langkah 4 | Selisih hanya dari RETUR (disengaja) |
+| 11 | 4 | Undo input tadi | Baris hilang, REKAP ikut mundur |
+| 12 | 5 | Warnai baris + Filter | Jalan seperti biasa |
+| 13 | 6 | Export PDF & Excel | File jadi, sheet asli tidak berubah |
+| 14 | 8A | Form dari HP: input manual & batch | Masuk, InputBy terisi |
+| 15 | 8C | Isi PRICE + DISKON + SALES | Kolom uang terisi sendiri oleh rumus |
+| 16 | 8C | Pilih sales berbeda-beda | Nilainya pindah kolom sesuai pilihan |
+| 17 | 8B | Dashboard | Angka cocok dengan REKAP |
+| 18 | 8C | Toggle Hari Ini/Minggu/Bulan/Semua | Omset berubah; kartu stok tidak |
+
+### Yang belum diputuskan dan belum saya ubah
+
+- **Kolom NO diisi per invoice**, bukan per baris (B7=1 menutupi baris 7–8,
+  B9=2). `renumberNoColumn_` saat hapus baris menomori ulang 1,2,3… per baris,
+  jadi penomoran per invoice itu akan berubah. Belum saya sentuh karena tidak
+  ada instruksinya.
+- **88 merge vertikal** di kolom NO BARANG KELUAR akan di-unmerge permanen
+  pada input pertama. Ini sesuai persetujuan Fase 1, tapi jumlahnya banyak.
+- **Baris lama yang rumusnya sudah mati** (korban bug sejak Fase 1) tidak
+  diperbaiki otomatis.

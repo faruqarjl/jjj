@@ -317,3 +317,63 @@ no history in the sheet, and the trend exists to compare weeks.
 
 All three transaction sheets are read once per request and the same rows feed
 the counts, the revenue and the trend, so 150 rows cost what 1 row does.
+
+## Fase 8D — Fitting the actual workbook
+
+Written after reading the source `.xlsm` rather than inferring from
+screenshots. Three of these four repair damage that was already happening.
+
+### getLastRow() was the wrong bound
+
+A cell holding a formula counts as non-empty even when the formula returns
+`""`, and these sheets carry hundreds of pre-filled rows doing exactly that —
+BARANG MASUK has 18 rows of data and 425 of waiting VLOOKUPs, and BARANG
+KELUAR ends with a TOTAL row of `=SUM(...)`. Appending at `getLastRow() + 1`
+therefore wrote to row 444 on masuk, and on keluar to the row *below* the
+total, whose SUM range could never reach it.
+
+`getDataBounds_()` now derives the end of the data from the item-code column:
+the last row naming an item is the last row of data. Formula-only rows and
+the TOTAL row name none, so they fall outside every derived range — append,
+sort, borders, delete, renumber and the formula copy alike. When the target
+row is genuinely occupied, `insertRowsBefore` makes space, which also lets
+Sheets widen the SUM ranges.
+
+"Occupied" means *typed*: non-empty and not the output of a formula. Judging
+by displayed value alone would mark every waiting formula row as occupied —
+`=IF($O10="ANZAR",...)` shows `0` — and the formulas placed there would never
+be used.
+
+### STATUS mirrors the workbook's formula
+
+```
+=IFERROR(IF(INT(SISA STOK / ISI PER PACK) <= MIN STOK,
+            "PERLU RESTOCK", "AMAN"), "PERLU RESTOCK")
+```
+
+MIN STOK is counted in **packs** here, so the stock is divided by ISI PER PACK
+before comparing; comparing raw units, as before, passed far too much as safe.
+The label carries a C — `PERLU RESTOCK`. There is no N/A: a missing MIN STOK
+means a threshold of zero, and it is a missing ISI PER PACK that resolves to
+PERLU RESTOCK, following the IFERROR. SISA DUS falls back to `0 DUS 0 PACK`
+for the same reason, configurable via `sisa_dus_teks_error`.
+
+RETUR still adds to stock per the Fase 2 decision. The Excel original never
+counted it — its recap RETUR column holds no formula at all — so this is a
+deliberate divergence, not a mismatch to fix.
+
+### The form no longer types over lookups
+
+NAMA BARANG is `=IFERROR(VLOOKUP(kode,'REKAP BARANG'!B:C,2,FALSE),"")` on all
+three transaction sheets, under the header `TBL_MASUK` on masuk and retur.
+Listing it in `col_<sheet>_formula` makes it read-only to the form and lets
+the copy-down supply the lookup, so a corrected catalogue still propagates.
+`getWebAppData()` reports this as `namaOtomatis` and the form disables the
+field rather than offering a box whose contents go nowhere.
+
+### Conversion caveats this cannot fix
+
+The workbook holds VBA macros, which Google Sheets does not run at all, and
+six Excel Tables whose `Table1[[#This Row],[...]]` references have no Google
+Sheets equivalent. Verify those survive the import before trusting anything
+downstream of them.

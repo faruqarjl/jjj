@@ -10,7 +10,7 @@
 // status_teks_* keys in Config, so another business can use SAFE/REORDER
 // without touching code. These apply when a key is blank or missing.
 const STATUS_AMAN_DEFAULT = 'AMAN';
-const STATUS_PERLU_RESTOK_DEFAULT = 'PERLU RESTOK';
+const STATUS_PERLU_RESTOK_DEFAULT = 'PERLU RESTOCK';
 const STATUS_NA_DEFAULT = 'N/A';
 
 const WARNA_STATUS_AMAN = '#D9EAD3';        // hijau muda
@@ -50,16 +50,29 @@ function statusColour_(status) {
 const STATUS_WARNAI_SELURUH_BARIS = false;
 
 /**
- * "PERLU RESTOK" when stock has fallen to or below the reorder point,
- * "AMAN" above it. A missing, zero or negative MIN STOK has no reorder
- * point to compare against, so it yields "N/A" — the caller logs why,
- * since only it knows which item code is involved.
+ * Mirrors the workbook's own STATUS formula rather than inventing a second
+ * rule:
+ *
+ *   =IFERROR(IF(INT(SISA STOK / ISI PER PACK) <= MIN STOK,
+ *               "PERLU RESTOCK", "AMAN"), "PERLU RESTOCK")
+ *
+ * The point that matters: MIN STOK in this business is counted in PACKS,
+ * not in loose units, so the stock is divided by ISI PER PACK before the
+ * comparison. Comparing SISA STOK to MIN STOK directly — which is what this
+ * did before the workbook was inspected — flags far too much as safe.
+ *
+ * A missing or zero ISI PER PACK is a division error in the sheet, and the
+ * IFERROR there resolves it to "PERLU RESTOCK": an item nobody can size is
+ * better surfaced than hidden. This follows that, deliberately, instead of
+ * returning the "N/A" it used to.
  */
-function calculateStatus_(sisaStok, minStok) {
+function calculateStatus_(sisaStok, minStok, isiPack) {
   const texts = statusTexts_();
-  const min = toNumber_(minStok);
-  if (!(min > 0)) return texts.tidakDiketahui;
-  return toNumber_(sisaStok) <= min ? texts.perluRestok : texts.aman;
+  const pack = toNumber_(isiPack);
+  if (!(pack > 0)) return texts.perluRestok;
+
+  const stokDalamPack = Math.floor(toNumber_(sisaStok) / pack);
+  return stokDalamPack <= toNumber_(minStok) ? texts.perluRestok : texts.aman;
 }
 
 /**

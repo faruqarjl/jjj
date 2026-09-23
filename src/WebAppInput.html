@@ -251,6 +251,9 @@
           <div class="field">
             <label for="nama">Nama Barang</label>
             <input id="nama" type="text" autocomplete="off" placeholder="Terisi otomatis dari kode">
+            <p class="hint hidden" id="namaHint">
+              Kolom ini diisi rumus di spreadsheet, jadi cukup isi kodenya saja.
+            </p>
           </div>
           <div class="field">
             <label for="jumlah">Jumlah</label>
@@ -326,7 +329,7 @@
     </main>
 
     <script>
-      var DATA = { users: [], items: [], jenis: [], sales: [], fieldKeluar: {}, needsAccessCode: false };
+      var DATA = { users: [], items: [], jenis: [], sales: [], fieldKeluar: {}, namaOtomatis: {}, needsAccessCode: false };
       var itemCount = 0;
 
       function el(id) { return document.getElementById(id); }
@@ -491,9 +494,27 @@
         el('invoiceWrap').className = keluar ? 'field' : 'field hidden';
         el('keteranganWrap').className = keluar ? 'field hidden' : 'field';
         syncHargaCard();
+        syncNama();
 
         var match = (DATA.jenis || []).filter(function (j) { return j.id === jenis; })[0];
         el('jenisHint').textContent = match ? 'Tercatat ke sheet: ' + match.sheet : '';
+      }
+
+      // Kalau NAMA BARANG diisi rumus VLOOKUP di sheet, form tidak boleh
+      // menulisinya — kolomnya cuma ditampilkan sebagai pratinjau.
+      function namaOtomatis() {
+        return !!(DATA.namaOtomatis || {})[jenisValue()];
+      }
+
+      function syncNama() {
+        var otomatis = namaOtomatis();
+        var input = el('nama');
+        input.disabled = otomatis;
+        input.placeholder = otomatis
+          ? 'Terisi otomatis oleh rumus di spreadsheet'
+          : 'Terisi otomatis dari kode';
+        var hint = el('namaHint');
+        if (hint) hint.className = otomatis ? 'hint' : 'hint hidden';
       }
 
       function fillNameFromCode(codeInput, nameInput) {
@@ -569,7 +590,8 @@
           '<div class="field"><label>Kode Barang</label>' +
           '<input class="bKode" list="itemList" autocomplete="off" placeholder="Ketik atau pilih"></div>' +
           '<div class="row2"><div><label>Nama Barang</label>' +
-          '<input class="bNama" type="text" autocomplete="off" placeholder="Otomatis"></div>' +
+          '<input class="bNama" type="text" autocomplete="off" placeholder="Otomatis"' +
+          ((DATA.namaOtomatis || {}).keluar ? ' disabled' : '') + '></div>' +
           '<div><label>Jumlah</label>' +
           '<input class="bJumlah" type="number" inputmode="numeric" min="1" step="any" placeholder="0"></div></div>' +
           itemMoneyFields();
