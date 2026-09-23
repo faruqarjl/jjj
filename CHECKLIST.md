@@ -21,6 +21,8 @@ Dua hal yang harus jujur disebut:
 
 **Retest menyeluruh terakhir: 23 Sep 2026**, di file duplikat BARU hasil Save as dari
 `.xlsm` asli (bukan duplikat lama yang datanya sudah tidak bisa dipercaya).
+**File produksi asli tidak pernah tersentuh script versi lama dan sudah
+diverifikasi bersih** — kerusakan hanya terjadi di duplikat testing lama.
 Anda konfirmasi 18 langkah di bagian "Testing menyeluruh" di bawah lulus
 semua, termasuk gerbang SISA STOK yang tidak jadi `#NAME?`.
 
@@ -583,6 +585,8 @@ dashboard sudah cukup membuktikan ketiganya.
 3. **Baris lama korban bug Fase 1** (rumusnya terlanjur kosong) tidak
    diperbaiki otomatis. Perbaikannya sekali jalan di spreadsheet: copy satu
    sel rumus yang utuh, paste ke kolom rumus di baris-baris yang kosong.
-4. **Apakah file produksi asli ikut kena bug baris 444 / rumus tertimpa,
-   atau cuma file duplikat testing** — belum terjawab. Kalau file asli pernah
-   dipakai dengan script versi lama, perlu dicek.
+4. ~~Apakah file produksi asli ikut kena bug baris 444 / rumus tertimpa~~ —
+   **terjawab 23 Sep 2026: file asli AMAN.** Anda cek langsung baris ~444 di
+   BARANG MASUK dan rumus di REKAP BARANG, tidak ada data testing maupun
+   rumus yang tertimpa. File asli memang belum pernah dideploy dengan script
+   versi lama. Yang rusak hanya duplikat testing lama, yang sudah dibuang.
