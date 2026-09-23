@@ -129,6 +129,9 @@
       }
       .remove:disabled { color: #cbd5e1; cursor: default; }
       .row2 { display: grid; grid-template-columns: 1fr 110px; gap: 10px; }
+      .row3 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .diskon3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px; }
+      .diskon3 .field { margin-bottom: 0; }
 
       button.action {
         width: 100%; font: inherit; font-size: 16px; font-weight: 700;
@@ -259,6 +262,37 @@
           </div>
         </div>
 
+        <!-- Only for barang keluar, and only for columns this sheet has -->
+        <div class="card hidden" id="hargaCard">
+          <h2>Harga &amp; Sales</h2>
+          <div class="field hidden" id="salesWrap">
+            <label for="sales">Sales</label>
+            <select id="sales"><option value="">— pilih sales —</option></select>
+            <p class="hint">Menentukan kolom omset mana yang terisi di spreadsheet.</p>
+          </div>
+          <div class="field hidden" id="priceWrap">
+            <label for="price">Harga Satuan</label>
+            <input id="price" type="number" inputmode="decimal" step="any" placeholder="0">
+          </div>
+          <div class="diskon3" id="diskonWrap">
+            <div class="field hidden" id="diskonWrap1">
+              <label for="diskon">Diskon</label>
+              <input id="diskon" type="number" inputmode="decimal" step="any" placeholder="0">
+            </div>
+            <div class="field hidden" id="diskonWrap2">
+              <label for="diskon2">Diskon 2</label>
+              <input id="diskon2" type="number" inputmode="decimal" step="any" placeholder="0">
+            </div>
+            <div class="field hidden" id="diskonWrap3">
+              <label for="diskon3">Diskon 3</label>
+              <input id="diskon3" type="number" inputmode="decimal" step="any" placeholder="0">
+            </div>
+          </div>
+          <p class="hint" id="hargaHint">
+            Total dihitung oleh rumus di spreadsheet, bukan oleh form ini.
+          </p>
+        </div>
+
         <button class="action" id="submitManual" onclick="submitManual()">Simpan Transaksi</button>
       </section>
 
@@ -274,6 +308,10 @@
             <label for="bInvoice">Nomor Invoice</label>
             <input id="bInvoice" type="text" autocomplete="off" placeholder="INV-001">
           </div>
+          <div class="field hidden" id="bSalesWrap">
+            <label for="bSales">Sales</label>
+            <select id="bSales"><option value="">— pilih sales —</option></select>
+          </div>
           <p class="hint">Semua barang di bawah dicatat dengan satu nomor invoice ini.</p>
         </div>
 
@@ -288,7 +326,7 @@
     </main>
 
     <script>
-      var DATA = { users: [], items: [], jenis: [], needsAccessCode: false };
+      var DATA = { users: [], items: [], jenis: [], sales: [], fieldKeluar: {}, needsAccessCode: false };
       var itemCount = 0;
 
       function el(id) { return document.getElementById(id); }
@@ -364,6 +402,19 @@
             if (data.users.length === 0) {
               showErr('Daftar nama belum diisi. Isi key "daftar_user" di sheet Config.');
             }
+            var opsi = '<option value="">— pilih sales —</option>' +
+              (DATA.sales || []).map(function (nama) {
+                return '<option value="' + nama.replace(/"/g, '&quot;') + '">' + nama + '</option>';
+              }).join('');
+            el('sales').innerHTML = opsi;
+            el('bSales').innerHTML = opsi;
+
+            var tersimpan = safeGet('stockManagerSales');
+            if (tersimpan && (DATA.sales || []).indexOf(tersimpan) !== -1) {
+              el('sales').value = tersimpan;
+              el('bSales').value = tersimpan;
+            }
+
             syncJenis();
           })
           .withFailureHandler(function (err) { showErr(err.message); })
@@ -405,11 +456,41 @@
 
       /* ---------- manual ---------- */
 
+      // Label sebuah field diambil dari nama kolomnya di Config, supaya
+      // form ini ikut menyesuaikan kalau nama kolomnya beda.
+      function setupField(wrapId, inputId, column, labelDefault) {
+        var ada = !!column;
+        el(wrapId).className = 'field' + (ada ? '' : ' hidden');
+        if (ada) {
+          var label = el(wrapId).querySelector('label');
+          if (label) label.textContent = labelDefault || column;
+        }
+        return ada;
+      }
+
+      function syncHargaCard() {
+        var f = DATA.fieldKeluar || {};
+        var keluar = jenisValue() === 'keluar';
+
+        var adaSales = setupField('salesWrap', 'sales', f.sales, 'Sales');
+        var adaPrice = setupField('priceWrap', 'price', f.price, 'Harga Satuan');
+        var adaD1 = setupField('diskonWrap1', 'diskon', f.diskon, 'Diskon');
+        var adaD2 = setupField('diskonWrap2', 'diskon2', f.diskon2, 'Diskon 2');
+        var adaD3 = setupField('diskonWrap3', 'diskon3', f.diskon3, 'Diskon 3');
+
+        el('diskonWrap').className = (adaD1 || adaD2 || adaD3) ? 'diskon3' : 'diskon3 hidden';
+
+        var adaApaPun = adaSales || adaPrice || adaD1 || adaD2 || adaD3;
+        el('hargaCard').className = (keluar && adaApaPun) ? 'card' : 'card hidden';
+        el('bSalesWrap').className = adaSales ? 'field' : 'field hidden';
+      }
+
       function syncJenis() {
         var jenis = jenisValue();
         var keluar = jenis === 'keluar';
         el('invoiceWrap').className = keluar ? 'field' : 'field hidden';
         el('keteranganWrap').className = keluar ? 'field hidden' : 'field';
+        syncHargaCard();
 
         var match = (DATA.jenis || []).filter(function (j) { return j.id === jenis; })[0];
         el('jenisHint').textContent = match ? 'Tercatat ke sheet: ' + match.sheet : '';
@@ -434,12 +515,21 @@
           nama: el('nama').value,
           jumlah: el('jumlah').value,
           keterangan: el('keterangan').value,
-          invoice: el('invoice').value
+          invoice: el('invoice').value,
+          price: el('price').value,
+          diskon: el('diskon').value,
+          diskon2: el('diskon2').value,
+          diskon3: el('diskon3').value,
+          sales: el('sales').value
         };
 
         if (!payload.user) { showErr('Pilih nama kamu dulu.'); return; }
         if (!payload.kode.trim()) { showErr('Kode barang wajib diisi.'); return; }
         if (!(Number(payload.jumlah) > 0)) { showErr('Jumlah harus lebih dari 0.'); return; }
+        if (payload.jenis === 'keluar' && DATA.fieldKeluar && DATA.fieldKeluar.sales &&
+            (DATA.sales || []).length > 0 && !payload.sales) {
+          showErr('Pilih nama sales dulu.'); return;
+        }
 
         clearBanner();
         busy(button, true);
@@ -448,6 +538,7 @@
           .withSuccessHandler(function (result) {
             busy(button, false, 'Simpan Transaksi');
             safeSet('stockManagerUser', payload.user);
+            if (payload.sales) safeSet('stockManagerSales', payload.sales);
             showOk(result.message);
             resetManual();
           })
@@ -460,8 +551,9 @@
 
       // Keeps name, date and type — the next entry is usually the same kind.
       function resetManual() {
-        ['kode', 'nama', 'jumlah', 'keterangan'].forEach(function (id) { el(id).value = ''; });
-        el('kode').focus();
+        ['kode', 'nama', 'jumlah', 'keterangan', 'price', 'diskon', 'diskon2', 'diskon3']
+          .forEach(function (id) { el(id).value = ''; });
+        el('kode').focus();   // sales sengaja dibiarkan, biasanya sama untuk input berikutnya
       }
 
       /* ---------- batch ---------- */
@@ -479,7 +571,8 @@
           '<div class="row2"><div><label>Nama Barang</label>' +
           '<input class="bNama" type="text" autocomplete="off" placeholder="Otomatis"></div>' +
           '<div><label>Jumlah</label>' +
-          '<input class="bJumlah" type="number" inputmode="numeric" min="1" step="any" placeholder="0"></div></div>';
+          '<input class="bJumlah" type="number" inputmode="numeric" min="1" step="any" placeholder="0"></div></div>' +
+          itemMoneyFields();
 
         el('items').appendChild(wrap);
 
@@ -493,6 +586,33 @@
 
         renumberItems();
         wrap.querySelector('.bKode').focus();
+      }
+
+      // Kolom harga/diskon per barang, cuma yang benar-benar ada di sheet.
+      function itemMoneyFields() {
+        var f = DATA.fieldKeluar || {};
+        var html = '';
+
+        if (f.price) {
+          html += '<div class="field"><label>Harga Satuan</label>' +
+            '<input class="bPrice" type="number" inputmode="decimal" step="any" placeholder="0"></div>';
+        }
+
+        var diskon = '';
+        [['diskon', 'bDiskon', 'Diskon'], ['diskon2', 'bDiskon2', 'Diskon 2'],
+         ['diskon3', 'bDiskon3', 'Diskon 3']].forEach(function (d) {
+          if (!f[d[0]]) return;
+          diskon += '<div class="field"><label>' + d[2] + '</label>' +
+            '<input class="' + d[1] + '" type="number" inputmode="decimal" step="any" placeholder="0"></div>';
+        });
+        if (diskon) html += '<div class="diskon3">' + diskon + '</div>';
+
+        return html;
+      }
+
+      function itemFieldValue(row, selector) {
+        var input = row.querySelector(selector);
+        return input ? input.value : '';
       }
 
       function renumberItems() {
@@ -511,7 +631,11 @@
           items.push({
             kode: row.querySelector('.bKode').value,
             nama: row.querySelector('.bNama').value,
-            jumlah: row.querySelector('.bJumlah').value
+            jumlah: row.querySelector('.bJumlah').value,
+            price: itemFieldValue(row, '.bPrice'),
+            diskon: itemFieldValue(row, '.bDiskon'),
+            diskon2: itemFieldValue(row, '.bDiskon2'),
+            diskon3: itemFieldValue(row, '.bDiskon3')
           });
         });
 
@@ -520,6 +644,7 @@
           kodeAkses: el('kodeAkses').value,
           tanggal: el('bTanggal').value,
           invoice: el('bInvoice').value,
+          sales: el('bSales').value,
           items: items.filter(function (item) { return item.kode.trim() !== ''; })
         };
 
@@ -529,6 +654,10 @@
 
         var bad = payload.items.filter(function (item) { return !(Number(item.jumlah) > 0); });
         if (bad.length) { showErr('Setiap barang harus punya jumlah lebih dari 0.'); return; }
+        if (DATA.fieldKeluar && DATA.fieldKeluar.sales && (DATA.sales || []).length > 0 &&
+            !payload.sales) {
+          showErr('Pilih nama sales dulu.'); return;
+        }
 
         clearBanner();
         busy(button, true);
@@ -537,6 +666,7 @@
           .withSuccessHandler(function (result) {
             busy(button, false, 'Simpan Invoice');
             safeSet('stockManagerUser', payload.user);
+            if (payload.sales) safeSet('stockManagerSales', payload.sales);
             showOk(result.message);
             resetBatch();
           })

@@ -159,7 +159,7 @@ Disepakati saat audit Fase 7 — didokumentasikan, tidak diperbaiki:
 
 ## Cakupan simulasi
 
-10 suite, 712 pemeriksaan, semua hijau:
+11 suite, 810 pemeriksaan, semua hijau:
 
 | Suite | Cakupan | Jumlah |
 |---|---|---|
@@ -173,6 +173,7 @@ Disepakati saat audit Fase 7 — didokumentasikan, tidak diperbaiki:
 | `harness8` | **Bisnis asing** + Panduan otomatis | 54 |
 | `harness9` | Form web app (Fase 8A) | 78 |
 | `harness10` | Dashboard read-only (Fase 8B) | 93 |
+| `harness11` | Kolom rumus, form harga/sales, omset (Fase 8C) | 98 |
 
 `harness8` yang paling relevan untuk reusability: sheet berbahasa Inggris, nama
 kolom berbeda di tiap sheet, RETUR punya kolom sendiri, `SEQ`/`LINE` sebagai
@@ -272,3 +273,101 @@ Deploy > Manage deployments > pensil > Version: **New version** > Deploy.
 - Grafik diambil dari CDN (Chart.js). Kalau koneksi ke CDN diblokir, grafiknya
   diganti keterangan dan angka di cards serta tabel tetap tampil benar.
 - Biaya baca tetap: 1 kali baca per sheet, berapa pun jumlah barangnya.
+
+
+---
+
+## Fase 8C — Kolom rumus, omset & filter waktu
+
+### Temuan yang memicu fase ini
+
+`appendRow` dan `batchInsert` menulis string kosong ke **seluruh lebar baris**.
+Jadi sejak Fase 1, setiap baris yang masuk lewat menu atau Web App membuat
+PRICE, DISKON, AMOUNT KANTOR, ANZAR, SALES B, dan SALES **kosong** — dan
+kalau kolom itu berisi rumus, rumusnya ikut mati untuk baris tersebut.
+
+Kalau dashboard omset dibuat tanpa memperbaiki ini dulu, angkanya akan tampil
+meyakinkan tapi salah, dan makin lama makin salah.
+
+| Fitur | Status | Catatan |
+|---|---|---|
+| Rumus disalin dari baris atas ke baris baru | Belum pernah live | Lulus simulasi |
+| Field PRICE / DISKON 1-3 di form Web App | Belum pernah live | Lulus simulasi |
+| Dropdown SALES di form (manual & batch) | Belum pernah live | Lulus simulasi |
+| Kartu Omset Keseluruhan (format Rupiah) | Belum pernah live | Lulus simulasi |
+| Rincian omset per sales | Belum pernah live | Lulus simulasi |
+| Filter waktu Hari Ini / Minggu Ini / Bulan Ini / Semua | Belum pernah live | Lulus simulasi |
+| Line chart tren omset per minggu | Belum pernah live | Lulus simulasi |
+
+### Cara kerja kolom rumus
+
+Script **tidak pernah menulis angka** ke AMOUNT KANTOR / ANZAR / SALES B.
+Setiap kali ada baris baru, rumus dari baris tepat di atasnya disalin pakai
+`copyTo(..., PASTE_FORMULA)` — referensi barisnya ikut digeser otomatis oleh
+Google Sheets. Jadi logika hitungnya tetap milik spreadsheet, apa pun bentuk
+rumusnya, dan tidak ada rumus tandingan di dalam kode yang bisa berbeda.
+
+Tiga pengaman:
+
+- Kalau sel di baris atas berisi **angka statis, bukan rumus** → tidak disalin.
+  Menyalin angka statis lebih buruk daripada mengosongkan, karena kelihatan
+  seperti hasil hitungan.
+- Kalau **tidak ada baris di atasnya** (sheet masih kosong) → dilewati, dicatat di log.
+- Kalau kolom disebut di Config tapi **tidak ada di sheet** → dilewati, baris tetap tertulis.
+
+### Key Config baru
+
+| Key | Default | Isi |
+|---|---|---|
+| `col_keluar_price` | `PRICE` | Kolom harga satuan, diketik lewat form |
+| `col_keluar_diskon` / `2` / `3` | `DISKON`, `DISKON2`, `DISKON3` | Kolom diskon, diketik lewat form |
+| `col_keluar_sales` | `SALES` | Kolom nama sales (dropdown di form) |
+| `col_keluar_formula` | `AMOUNT KANTOR, ANZAR, SALES B` | Kolom rumus yang disalin turun |
+| `col_keluar_omset` | `AMOUNT KANTOR, ANZAR, SALES B` | Kolom rupiah yang dijumlah jadi omset |
+| `daftar_sales` | `ANZAR, SALES B` | Pilihan dropdown sales |
+| `dashboard_minggu_tren` | `8` | Jumlah minggu di grafik tren |
+
+Semua kolom di atas **opsional**. Dikosongkan = field-nya hilang dari form dan
+tidak ada yang disalin. Bisnis lain yang tidak pakai omset tetap jalan seperti
+Fase 8B.
+
+### Yang perlu Anda cek sendiri — PENTING
+
+1. **Cek ejaan header persis** di sheet BARANG KELUAR, terutama kolom diskon
+   ketiga. Di screenshot header-nya terpotong jadi `ISKON`, saya tebak
+   `DISKON3`. Kalau salah, betulkan Value-nya di sheet Config — tidak perlu
+   ubah kode.
+2. **Cek isi `daftar_sales`** harus sama **persis** dengan teks yang dikenali
+   rumus di kolom AMOUNT/ANZAR/SALES B. Kalau rumusnya mencocokkan `"ANZAR"`
+   dan dropdown mengirim `"Anzar"`, nilainya tidak akan masuk ke kolom mana
+   pun dan omsetnya jadi 0 tanpa error.
+3. **Sheet BARANG KELUAR harus punya minimal satu baris lama yang rumusnya
+   utuh** — itu sumber salinannya. Kalau baris terakhir kebetulan baris yang
+   rumusnya sudah mati (korban bug lama), perbaiki dulu satu baris itu secara
+   manual, baru input lewat form.
+
+### Baris lama yang sudah terlanjur kosong
+
+Fase ini **tidak memperbaiki baris yang sudah terlanjur ditulis** sejak Fase 1.
+Baris-baris itu tetap kosong di kolom PRICE/AMOUNT dan akan terhitung Rp 0 di
+dashboard. Kalau jumlahnya banyak, perbaikannya: seleksi satu sel rumus yang
+masih utuh, copy, lalu paste ke seluruh kolom rumus di baris-baris yang kosong
+— itu pekerjaan sekali jalan di spreadsheet, bukan di script.
+
+### Definisi periode
+
+- **Hari Ini** — tanggal hari ini, zona waktu spreadsheet
+- **Minggu Ini** — minggu kalender Senin–Minggu (bukan 7 hari terakhir)
+- **Bulan Ini** — tanggal 1 sampai akhir bulan berjalan
+- **Semua** — seluruh isi sheet
+
+Karena pakai batas kalender, baris bertanggal besok ikut terhitung di
+"Minggu Ini" tapi tidak di "Hari Ini". Itu memang arti minggu kalender.
+
+**Kartu stok (Total Jenis / Aman / Perlu Restok) sengaja TIDAK ikut filter
+waktu** — SISA STOK adalah posisi sekarang, dan sheet tidak menyimpan riwayat
+"stok per akhir minggu lalu". Angka stok historis hanya bisa dikarang. Di UI
+kartu itu diberi judul terpisah "Posisi Stok Saat Ini" supaya tidak rancu.
+
+**Grafik tren juga tidak ikut filter waktu** — gunanya justru membandingkan
+antar minggu, jadi selalu menampilkan beberapa minggu terakhir.

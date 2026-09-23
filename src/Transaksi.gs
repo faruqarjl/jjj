@@ -35,6 +35,11 @@ function appendRow(sheetName, rowDataObject) {
   );
   table.sheet.getRange(targetRow, 1, 1, rowValues.length).setValues([rowValues]);
 
+  // The row above owns the pricing formulas; inherit them, then make sure
+  // anything the caller typed still wins over what was pasted.
+  const copied = copyFormulaColumns_(sheetName, targetRow, 1);
+  restoreManualValues_(sheetName, targetRow, [rowValues], copied);
+
   applyBorders(sheetName);
   resyncRekapForCodes_(sheetName, [rowValues]);
   return targetRow;
@@ -154,6 +159,9 @@ function batchInsert(sheetName, arrayOfRowDataObjects) {
     sheetName, table.headerRow, rows.length, startRow
   );
   sheet.getRange(startRow, 1, rows.length, table.width).setValues(rows);
+
+  const copied = copyFormulaColumns_(sheetName, startRow, rows.length, config);
+  restoreManualValues_(sheetName, startRow, rows, copied, config);
 
   applyBorders(sheetName);
   resyncRekapForCodes_(sheetName, rows);
@@ -442,4 +450,126 @@ function getSheetOrThrow_(sheetName) {
     throw new Error('Sheet "' + sheetName + '" tidak ditemukan.');
   }
   return sheet;
+}
+
+/* ------------------------------------------------------------------ *
+ * Formula columns (Fase 8C)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Copies the formulas of the columns named by col_<sheet>_formula from the
+ * row above into freshly written rows.
+ *
+ * Why copy rather than compute: those columns (AMOUNT KANTOR, ANZAR,
+ * SALES B in the original workbook) hold the spreadsheet's own pricing
+ * logic, routing a line's value to whichever column matches the chosen
+ * sales name. Re-implementing that in code would create a second, rival
+ * formula that silently drifts the first time someone edits the sheet's
+ * version. Copying keeps the arithmetic owned by the spreadsheet, whatever
+ * shape it takes.
+ *
+ * setValues() had been writing '' across the full row width, so every row
+ * added by the script since Fase 1 left these columns blank — a paste of
+ * the formula is what makes a scripted row behave like a hand-typed one.
+ *
+ * Silent no-op when the key is blank, when the sheet has no row above to
+ * copy from, or when the source cell holds a value rather than a formula:
+ * pasting a static number down the column would be worse than leaving it
+ * empty, because it would look computed.
+ */
+function copyFormulaColumns_(sheetName, startRow, rowCount, config) {
+  const settings = config || getConfig();
+  const names = formulaColumnNames_(sheetName, settings);
+  if (names.length === 0) return [];
+
+  const table = getTableInfo_(sheetName);
+  const sourceRow = startRow - 1;
+  if (sourceRow < table.firstDataRow) {
+    Logger.log(
+      'copyFormulaColumns_("%s"): baris %s tidak punya baris data di atasnya — rumus tidak disalin.',
+      sheetName, startRow
+    );
+    return [];
+  }
+
+  // Only columns whose source cell really holds a formula.
+  const columns = [];
+  names.forEach(function (name) {
+    let index;
+    try {
+      index = resolveColumnIndex_(table.headers, name, sheetName, table.headerRow);
+    } catch (err) {
+      Logger.log('copyFormulaColumns_(): kolom rumus "%s" tidak ada di "%s" — dilewati.', name, sheetName);
+      return;
+    }
+    if (table.sheet.getRange(sourceRow, index).getFormula() === '') {
+      Logger.log(
+        'copyFormulaColumns_(): "%s" baris %s bukan rumus — dilewati supaya nilai statis tidak ikut tersalin.',
+        name, sourceRow
+      );
+      return;
+    }
+    columns.push(index);
+  });
+  if (columns.length === 0) return [];
+
+  // Adjacent columns are pasted in one call; copyTo repeats the single
+  // source row down the whole destination, so a batch costs the same as one.
+  groupConsecutiveRuns_(columns).forEach(function (run) {
+    table.sheet.getRange(sourceRow, run.start, 1, run.count)
+      .copyTo(
+        table.sheet.getRange(startRow, run.start, rowCount, run.count),
+        SpreadsheetApp.CopyPasteType.PASTE_FORMULA,
+        false
+      );
+  });
+
+  Logger.log(
+    'copyFormulaColumns_("%s"): rumus kolom %s disalin dari baris %s ke %s baris mulai %s.',
+    sheetName, columns.join(','), sourceRow, rowCount, startRow
+  );
+  return columns;
+}
+
+/** The formula columns configured for a sheet, as header names. */
+function formulaColumnNames_(sheetName, config) {
+  const raw = normalizeText_(columnNameFor_(sheetName, 'formula', config));
+  if (raw === '') return [];
+  return raw.split(',')
+    .map(function (part) { return normalizeText_(part); })
+    .filter(function (part) { return part !== ''; });
+}
+
+/**
+ * Re-writes the cells the caller supplied that fall inside a column whose
+ * formula was just pasted over them.
+ *
+ * Normally the two sets don't overlap — the form asks for PRICE, DISKON and
+ * SALES, never for the computed columns — and then this does nothing. It
+ * matters when Config lists the same column in both places: what the user
+ * typed has to win over a formula inherited from the row above.
+ */
+function restoreManualValues_(sheetName, startRow, rows, copiedColumns, config) {
+  if (copiedColumns.length === 0 || rows.length === 0) return;
+
+  const table = getTableInfo_(sheetName);
+  const overlap = copiedColumns.filter(function (index) {
+    return rows.some(function (row) {
+      const value = row[index - 1];
+      return value !== '' && value !== null && value !== undefined;
+    });
+  });
+  if (overlap.length === 0) return;
+
+  groupConsecutiveRuns_(overlap).forEach(function (run) {
+    const block = rows.map(function (row) {
+      return row.slice(run.start - 1, run.start - 1 + run.count);
+    });
+    table.sheet.getRange(startRow, run.start, block.length, run.count).setValues(block);
+  });
+
+  Logger.log(
+    'restoreManualValues_("%s"): kolom %s ditimpa balik dengan nilai dari form.',
+    sheetName, overlap.join(',')
+  );
 }

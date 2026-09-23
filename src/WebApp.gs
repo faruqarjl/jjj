@@ -76,8 +76,49 @@ function getWebAppData() {
       { id: 'retur', label: 'Barang Retur', sheet: normalizeText_(config.sheet_barang_retur) },
       { id: 'keluar', label: 'Barang Keluar', sheet: normalizeText_(config.sheet_barang_keluar) }
     ],
-    items: getWebAppItems_()
+    items: getWebAppItems_(),
+    sales: getWebAppSales_(),
+    fieldKeluar: webAppKeluarFields_(config)
   };
+}
+
+/**
+ * Which of the optional barang-keluar fields this spreadsheet actually has,
+ * so the form shows a PRICE or DISKON box only where there is a column to
+ * put it in. A business without them sees the plain Fase 8A form.
+ */
+function webAppKeluarFields_(config) {
+  const sheetName = normalizeText_(config.sheet_barang_keluar);
+  const fields = {};
+
+  ['price', 'diskon', 'diskon2', 'diskon3', 'sales'].forEach(function (field) {
+    fields[field] = sheetName === ''
+      ? null
+      : normalizeText_(columnNameFor_(sheetName, field, config)) || null;
+  });
+
+  return fields;
+}
+
+/** Sales names for the dropdown, from daftar_sales. */
+function getWebAppSales_() {
+  return splitConfigList_(getConfig().daftar_sales);
+}
+
+/** A comma-separated Config value as a trimmed, de-duplicated list. */
+function splitConfigList_(raw) {
+  const text = normalizeText_(raw);
+  if (text === '') return [];
+
+  const seen = {};
+  return text.split(',')
+    .map(function (part) { return normalizeText_(part); })
+    .filter(function (part) {
+      const key = part.toLowerCase();
+      if (part === '' || seen[key]) return false;
+      seen[key] = true;
+      return true;
+    });
 }
 
 /** Item codes and names from the recap, for the picker that fills the name. */
@@ -95,18 +136,7 @@ function getWebAppItems_() {
 
 /** Names from the daftar_user key, trimmed and de-duplicated. */
 function getWebAppUsers_() {
-  const raw = normalizeText_(getConfig().daftar_user);
-  if (raw === '') return [];
-
-  const seen = {};
-  return raw.split(',')
-    .map(function (name) { return normalizeText_(name); })
-    .filter(function (name) {
-      const key = name.toLowerCase();
-      if (name === '' || seen[key]) return false;
-      seen[key] = true;
-      return true;
-    });
+  return splitConfigList_(getConfig().daftar_user);
 }
 
 /**
@@ -142,6 +172,7 @@ function submitWebAppInput(payload) {
     const invoice = normalizeText_(request.invoice);
     if (invoice === '') throw new Error('Nomor invoice wajib diisi untuk barang keluar.');
     row[columnNameFor_(sheetName, 'invoice', config)] = invoice;
+    applyKeluarFields_(row, request, config);
   } else {
     const keteranganColumn = columnNameFor_(sheetName, 'keterangan', config);
     if (keteranganColumn) row[keteranganColumn] = normalizeText_(request.keterangan);
@@ -196,6 +227,16 @@ function submitWebAppBatch(payload) {
     row[column.kode] = normalizeText_(item.kode);
     row[column.jumlah] = webAppQuantity_(item.jumlah, 'Barang ke-' + (i + 1));
     if (column.nama) row[column.nama] = normalizeText_(item.nama);
+
+    // Price and discounts vary per line; the sales name belongs to the
+    // whole invoice, so it is taken from the request for every row.
+    applyKeluarFields_(row, {
+      price: item.price,
+      diskon: item.diskon,
+      diskon2: item.diskon2,
+      diskon3: item.diskon3,
+      sales: request.sales
+    }, config);
     return row;
   });
 
@@ -208,6 +249,82 @@ function submitWebAppBatch(payload) {
     sheetName: sheetName,
     rowIndices: rowIndices
   };
+}
+
+/**
+ * Fills the manually typed barang-keluar columns — price, up to three
+ * discounts, and the sales name — into a row about to be written.
+ *
+ * These are the inputs the sheet's own formulas consume. The computed
+ * columns are never touched here: their formulas are inherited from the
+ * row above by copyFormulaColumns_() once the row is written.
+ *
+ * Every field is optional in Config, so a spreadsheet without a PRICE
+ * column simply never receives one.
+ */
+function applyKeluarFields_(row, request, config) {
+  const sheetName = normalizeText_(config.sheet_barang_keluar);
+  const fields = webAppKeluarFields_(config);
+
+  if (fields.price) {
+    row[fields.price] = webAppOptionalNumber_(request.price, 'Harga (PRICE)');
+  }
+
+  [['diskon', 'Diskon'], ['diskon2', 'Diskon 2'], ['diskon3', 'Diskon 3']].forEach(function (pair) {
+    const column = fields[pair[0]];
+    if (column) row[column] = webAppOptionalNumber_(request[pair[0]], pair[1]);
+  });
+
+  if (fields.sales) {
+    row[fields.sales] = assertWebAppSales_(request.sales, sheetName);
+  }
+}
+
+/**
+ * A number the user may legitimately leave blank, which becomes '' so the
+ * cell stays empty rather than reading a misleading 0. Text that is not a
+ * number is rejected instead of silently becoming 0 — a price typed as
+ * "25.000,-" would otherwise flow into the sheet's formulas as nothing.
+ */
+function webAppOptionalNumber_(value, label) {
+  const text = normalizeText_(value);
+  if (text === '') return '';
+
+  const parsed = Number(text);
+  if (!isFinite(parsed)) {
+    throw new Error(label + ' harus berupa angka. Isi "' + text + '" tidak bisa dibaca.');
+  }
+  return parsed;
+}
+
+/**
+ * The chosen sales name must be one of the configured ones: the sheet's
+ * formulas route a line's value by matching this text, so a typo would
+ * send the amount to no column at all and quietly lose the sale.
+ */
+function assertWebAppSales_(submitted, sheetName) {
+  const sales = getWebAppSales_();
+  const name = normalizeText_(submitted);
+
+  if (sales.length === 0) {
+    if (name !== '') return name;
+    throw new Error(
+      'Daftar sales belum diisi. Isi key "daftar_sales" di sheet Config ' +
+      '(nama dipisah koma), lalu buka ulang halaman ini.'
+    );
+  }
+
+  const match = sales.filter(function (item) {
+    return item.toLowerCase() === name.toLowerCase();
+  })[0];
+
+  if (!match) {
+    throw new Error(
+      'Pilih nama sales dulu dari daftar. Nama ini dipakai rumus di sheet "' +
+      sheetName + '" untuk menentukan kolom omsetnya, jadi harus persis.'
+    );
+  }
+  return match;
 }
 
 /* ------------------------------------------------------------------ *

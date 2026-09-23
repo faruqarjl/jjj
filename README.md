@@ -259,3 +259,61 @@ outbound internet — an offline machine gets the numbers but not the graphs.
 Auto-refresh runs every 5 minutes, skipped while the tab is hidden and
 triggered again when it becomes visible, so a dashboard left on an office
 tablet stays current without hammering the script.
+
+
+## Fase 8C — Formula columns, revenue and time filters
+
+### The bug this fixes
+
+`appendRow()` and `batchInsert()` build `new Array(table.width).fill('')` and
+write it across the whole row. Columns the caller didn't supply weren't merely
+skipped — they were actively blanked. In the original workbook AMOUNT KANTOR,
+ANZAR and SALES B hold formulas that route a line's value to whichever column
+matches the chosen sales name, so every row the script added from Fase 1
+onward lost them and read as zero revenue.
+
+### Copying instead of computing
+
+`copyFormulaColumns_()` pastes the formulas named by `col_<sheet>_formula`
+from the row above into each new row, with
+`copyTo(..., CopyPasteType.PASTE_FORMULA)` so Sheets shifts the relative
+references itself. The pricing logic stays owned by the spreadsheet — there is
+no rival formula in the code to drift from it.
+
+It refuses to copy when the source cell holds a static value rather than a
+formula (a pasted number would look computed), when there is no data row
+above, or when a configured column is missing from the sheet. Each refusal is
+logged and the row is still written.
+
+`restoreManualValues_()` then rewrites any cell the caller supplied that a
+pasted formula landed on. The two sets don't normally overlap, so it usually
+does nothing; it matters only when Config lists a column as both a form field
+and a formula column, and there what the user typed wins.
+
+### Form fields
+
+The web app's barang-keluar form gained PRICE, up to three discounts and a
+SALES dropdown. Each appears only when Config names a column for it, so a
+business without those columns sees the plain Fase 8A form. The sales name is
+validated against `daftar_sales`: the sheet's formulas match on that text, so
+a typo would route the amount to no column and lose the sale silently.
+
+The menu's "Input Manual" and "Input Batch" items are test stubs that write
+dummy rows, not real forms — they gained no fields, but they go through
+`appendRow`/`batchInsert` and so inherit the formulas too.
+
+### Dashboard additions
+
+A range toggle (Hari Ini / Minggu Ini / Bulan Ini / Semua) drives revenue and
+transaction counts; `col_keluar_omset` names the money columns to sum, and the
+breakdown groups rows by the sales column, with blank names collected under
+"(Tanpa Sales)" so the parts always add up to the whole. A weekly trend line
+covers the last `dashboard_minggu_tren` calendar weeks, keeping empty weeks at
+zero rather than skipping them.
+
+Weeks and months are calendar ranges, not rolling windows. Stock cards and the
+trend chart deliberately ignore the range: stock is a right-now position with
+no history in the sheet, and the trend exists to compare weeks.
+
+All three transaction sheets are read once per request and the same rows feed
+the counts, the revenue and the trend, so 150 rows cost what 1 row does.

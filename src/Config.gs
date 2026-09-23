@@ -36,10 +36,19 @@ const DEFAULT_CONFIG_ENTRIES = [
   ['col_keluar_nama', 'NAMA BARANG'],
   ['col_keluar_jumlah', 'JUMLAH'],
   ['col_keluar_no', 'NO'],
-  // Fase 8C: kolom rupiah di sheet keluar (boleh lebih dari satu, dipisah koma)
-  // dan kolom teks berisi nama sales-nya.
-  ['col_keluar_omset', 'AMOUNT KANTOR, ANZAR, SALES B'],
+  // Fase 8C — kolom yang diketik manual lewat form input.
+  ['col_keluar_price', 'PRICE'],
+  ['col_keluar_diskon', 'DISKON'],
+  ['col_keluar_diskon2', 'DISKON2'],
+  ['col_keluar_diskon3', 'DISKON3'],
   ['col_keluar_sales', 'SALES'],
+  // Kolom yang isinya rumus milik spreadsheet. Script TIDAK menulis angka ke
+  // sini — rumusnya disalin dari baris di atasnya supaya logika hitungnya
+  // tetap milik spreadsheet, apa pun bentuk rumusnya.
+  ['col_keluar_formula', 'AMOUNT KANTOR, ANZAR, SALES B'],
+  // Kolom rupiah yang dijumlah jadi omset di dashboard (boleh lebih dari satu).
+  ['col_keluar_omset', 'AMOUNT KANTOR, ANZAR, SALES B'],
+  ['daftar_sales', 'ANZAR, SALES B'],
   ['dashboard_minggu_tren', 8],
   ['col_rekap_kode', 'KODE BARANG'],
   ['col_rekap_nama', 'NAMA BARANG'],
