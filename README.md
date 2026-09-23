@@ -377,3 +377,51 @@ The workbook holds VBA macros, which Google Sheets does not run at all, and
 six Excel Tables whose `Table1[[#This Row],[...]]` references have no Google
 Sheets equivalent. Verify those survive the import before trusting anything
 downstream of them.
+
+## Fase 9 — Managing everything from the web app
+
+The goal changed: the spreadsheet should no longer be the only place work can
+happen. This deliberately lifts the read-only rule Fase 8B set, for the data
+pages only — the dashboard stays read-only.
+
+### Four pages, one deployment
+
+`doGet(e)` routes on `?page=`: `data` (browse/edit/delete transactions),
+`rekap` (catalogue CRUD), `dashboard`, and the input form as the default for
+anything else. `WebStyles.html` and `WebShell.html` are pulled into each page
+with `createTemplateFromFile` + `include()`, so the tokens, toasts, modal and
+nav exist once rather than four times.
+
+The shell is a sidebar on desktop and a bottom bar under 860px — the request
+was explicitly desktop-first, and a left rail gives the data tables their full
+width while staying reachable on a phone.
+
+### What editing is allowed to touch
+
+`describeColumns_()` marks each column editable or not, and the rules are
+enforced on the server, not just hidden in the UI:
+
+- Columns named by `col_<sheet>_formula` are shown (their numbers matter) but
+  never written — the form disables them and flags them `ƒ`.
+- The NO column is off-limits; renumbering owns it.
+- Rows outside `getDataBounds_` are refused, so the blank formula rows and the
+  TOTAL footer cannot be edited or deleted by row number.
+- **Only changed cells are written**, grouped into contiguous runs. Writing a
+  whole row would clear the formula columns it crosses — the exact bug Fase 8D
+  existed to fix.
+- Every change goes through `logAction_`, so Undo in the spreadsheet still
+  reverses it and InputBy records who did it.
+- The recap resyncs for both the old and the new item code when a code moves.
+- Deleting a catalogue item is refused while transactions still reference it.
+
+### Chart colours
+
+The status donut was green vs red. Measured with the palette validator that
+pair is **CVD ΔE 4.1** in deuteranopia — the one pair colour-blind viewers
+cannot separate. It is now blue for safe and red for reorder, which clears the
+gate on both the light and dark surfaces, with the legend carrying an icon and
+the count so identity never rests on hue alone. The Top-10 bar chart dropped to
+a single hue; the table beneath it already says which items need reordering.
+
+Chart colours are read from CSS custom properties at render time, so dark mode
+uses its own steps rather than an inverted copy of the light ones.

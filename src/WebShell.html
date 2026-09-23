@@ -1,0 +1,201 @@
+<script>
+  /* =================================================================
+   * Shared client helpers for every web app page.
+   * ================================================================= */
+
+  var KODE_KEY = 'stockManagerKode';
+  var USER_KEY = 'stockManagerUser';
+  var SALES_KEY = 'stockManagerSales';
+
+  function el(id) { return document.getElementById(id); }
+  function esc(text) {
+    return String(text === null || text === undefined ? '' : text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function num(value) {
+    var n = Number(value);
+    return isFinite(n) ? n.toLocaleString('id-ID') : '0';
+  }
+  function rupiah(value) {
+    var n = Number(value);
+    if (!isFinite(n)) n = 0;
+    return (n < 0 ? '-Rp ' : 'Rp ') + Math.round(Math.abs(n)).toLocaleString('id-ID');
+  }
+  function rupiahSingkat(value) {
+    var n = Number(value);
+    if (!isFinite(n) || n === 0) return 'Rp 0';
+    var abs = Math.abs(n), t = n < 0 ? '-' : '';
+    if (abs >= 1e12) return t + 'Rp ' + (abs / 1e12).toFixed(1).replace('.', ',') + ' T';
+    if (abs >= 1e9) return t + 'Rp ' + (abs / 1e9).toFixed(1).replace('.', ',') + ' M';
+    if (abs >= 1e6) return t + 'Rp ' + (abs / 1e6).toFixed(1).replace('.', ',') + ' jt';
+    if (abs >= 1e3) return t + 'Rp ' + Math.round(abs / 1e3) + ' rb';
+    return t + 'Rp ' + Math.round(abs);
+  }
+  function tanggalPendek(key) {
+    if (!key) return '';
+    var p = String(key).split('-');
+    if (p.length !== 3) return key;
+    var b = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+    return Number(p[2]) + ' ' + b[Number(p[1]) - 1] + ' ' + p[0];
+  }
+  function hariIni() { return new Date().toISOString().slice(0, 10); }
+
+  // localStorage dimatikan di mode privat — jangan sampai bikin halaman mati.
+  function safeGet(key) {
+    try { return window.localStorage.getItem(key); } catch (e) { return null; }
+  }
+  function safeSet(key, value) {
+    try { window.localStorage.setItem(key, value); } catch (e) { /* abaikan */ }
+  }
+
+  function kodeAkses() { return safeGet(KODE_KEY) || ''; }
+  function userAktif() { return safeGet(USER_KEY) || ''; }
+
+  /* ---------------- toast ---------------- */
+
+  function toastWrap() {
+    var w = el('toasts');
+    if (!w) {
+      w = document.createElement('div');
+      w.id = 'toasts';
+      w.className = 'toasts';
+      document.body.appendChild(w);
+    }
+    return w;
+  }
+
+  function toast(kind, judul, pesan, durasi) {
+    var t = document.createElement('div');
+    t.className = 'toast ' + kind;
+    var ikon = kind === 'ok'
+      ? '<svg class="tick" viewBox="0 0 24 24"><path d="M4 12.5l5.2 5.2L20 7"/></svg>'
+      : '<span style="color:var(--err);font-weight:800">!</span>';
+    t.innerHTML = '<span class="badge">' + ikon + '</span>' +
+      '<span><b>' + esc(judul) + '</b>' +
+      (pesan ? '<span class="msg">' + esc(pesan) + '</span>' : '') + '</span>';
+
+    toastWrap().appendChild(t);
+    var hidup = durasi || (kind === 'err' ? 7000 : 3800);
+    setTimeout(function () {
+      t.className += ' out';
+      setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 260);
+    }, hidup);
+    return t;
+  }
+  function toastOk(judul, pesan) { return toast('ok', judul, pesan); }
+  function toastErr(judul, pesan) { return toast('err', judul, pesan); }
+
+  /* ---------------- tombol sibuk ---------------- */
+
+  function busy(button, on, labelAsli) {
+    if (!button) return;
+    if (on) {
+      button.dataset.label = button.innerHTML;
+      button.disabled = true;
+      button.innerHTML = '<span class="spinner"></span><span>Menyimpan…</span>';
+    } else {
+      button.disabled = false;
+      button.innerHTML = labelAsli || button.dataset.label || button.innerHTML;
+    }
+  }
+
+  /* ---------------- modal ---------------- */
+
+  var modalTutup = null;
+
+  function bukaModal(judul, subjudul, isiHtml, tombol) {
+    tutupModal();
+    var back = document.createElement('div');
+    back.className = 'backdrop';
+    back.innerHTML =
+      '<div class="modal" role="dialog" aria-modal="true">' +
+        '<header><div><h3>' + esc(judul) + '</h3>' +
+          (subjudul ? '<p>' + esc(subjudul) + '</p>' : '') + '</div>' +
+          '<button class="x" type="button" aria-label="Tutup">&times;</button></header>' +
+        '<div class="body">' + isiHtml + '</div>' +
+        '<div class="foot"></div>' +
+      '</div>';
+
+    var foot = back.querySelector('.foot');
+    (tombol || []).forEach(function (t) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn ' + (t.gaya || 'ghost');
+      b.textContent = t.label;
+      b.onclick = function () { t.aksi(b, back); };
+      foot.appendChild(b);
+    });
+
+    back.querySelector('.x').onclick = tutupModal;
+    back.addEventListener('click', function (e) { if (e.target === back) tutupModal(); });
+    document.addEventListener('keydown', escTutup);
+    document.body.appendChild(back);
+    modalTutup = back;
+
+    var fokus = back.querySelector('input, select, textarea, button.btn');
+    if (fokus) fokus.focus();
+    return back;
+  }
+
+  function escTutup(e) { if (e.key === 'Escape') tutupModal(); }
+
+  function tutupModal() {
+    document.removeEventListener('keydown', escTutup);
+    if (modalTutup && modalTutup.parentNode) modalTutup.parentNode.removeChild(modalTutup);
+    modalTutup = null;
+  }
+
+  /* ---------------- navigasi ---------------- */
+
+  function pasangNav(halamanAktif) {
+    google.script.run
+      .withSuccessHandler(function (nav) {
+        if (!nav || !nav.input) return;     // bukan web app ter-deploy
+        var item = [
+          { id: 'input', label: 'Input', ic: '✎', url: nav.input },
+          { id: 'data', label: 'Data', ic: '☰', url: nav.data },
+          { id: 'rekap', label: 'Barang', ic: '▣', url: nav.rekap },
+          { id: 'dashboard', label: 'Dashboard', ic: '◴', url: nav.dashboard }
+        ];
+        el('navItems').innerHTML = item.map(function (m) {
+          return '<a class="item" href="' + esc(m.url) + '" target="_top"' +
+            (m.id === halamanAktif ? ' aria-current="page"' : '') + '>' +
+            '<span class="ic">' + m.ic + '</span><span>' + m.label + '</span></a>';
+        }).join('');
+      })
+      .withFailureHandler(function () { /* nav opsional */ })
+      .getWebAppNav();
+  }
+
+  /* ---------------- panggilan server ---------------- */
+
+  /**
+   * Membungkus google.script.run supaya satu penanganan error dipakai di
+   * semua halaman: pesan "Kode akses salah" memunculkan kotak kode, sisanya
+   * jadi toast merah.
+   */
+  function panggil(namaFungsi, payload, onSukses, onGagal) {
+    var data = payload || {};
+    data.kodeAkses = kodeAkses();
+
+    google.script.run
+      .withSuccessHandler(function (hasil) { if (onSukses) onSukses(hasil); })
+      .withFailureHandler(function (err) {
+        var pesan = (err && err.message) ? err.message : String(err);
+        if (pesan.indexOf('Kode akses') !== -1) { mintaKodeAkses(pesan); return; }
+        if (onGagal) onGagal(pesan); else toastErr('Gagal', pesan);
+      })[namaFungsi](data);
+  }
+
+  function mintaKodeAkses(pesan) {
+    bukaModal('Kode Akses', pesan || 'Masukkan kode akses untuk melanjutkan.',
+      '<div class="field"><label for="mKode">Kode akses</label>' +
+      '<input id="mKode" type="password" autocomplete="off" placeholder="••••"></div>',
+      [{ label: 'Simpan & lanjut', gaya: '', aksi: function () {
+          safeSet(KODE_KEY, el('mKode').value);
+          tutupModal();
+          if (typeof muatUlangHalaman === 'function') muatUlangHalaman();
+        } }]);
+  }
+</script>

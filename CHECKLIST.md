@@ -590,3 +590,81 @@ dashboard sudah cukup membuktikan ketiganya.
    BARANG MASUK dan rumus di REKAP BARANG, tidak ada data testing maupun
    rumus yang tertimpa. File asli memang belum pernah dideploy dengan script
    versi lama. Yang rusak hanya duplikat testing lama, yang sudah dibuang.
+
+---
+
+## Fase 9 — Kelola semua data dari web app
+
+Tujuan berubah: spreadsheet tidak lagi jadi satu-satunya tempat kerja.
+**Ini membalik aturan read-only Fase 8B** untuk halaman data — atas permintaan
+Anda. Dashboard sendiri tetap read-only.
+
+### Empat halaman, satu deployment
+
+| `?page=` | Halaman | Isi |
+|---|---|---|
+| *(kosong)* / `input` | Input | Form manual & batch invoice (Fase 8A/8C) |
+| `data` | Data Transaksi | Telusuri, cari, **edit**, **hapus** baris masuk/retur/keluar |
+| `rekap` | Daftar Barang | Katalog: **tambah**, **edit**, **hapus** barang |
+| `dashboard` | Dashboard | Ringkasan, grafik, omset — tetap read-only |
+
+### Status
+
+| Fitur | Status | Catatan |
+|---|---|---|
+| Tabel transaksi + pencarian + paging 25 baris | Belum pernah live | Lulus simulasi |
+| Edit baris transaksi | Belum pernah live | Lulus simulasi |
+| Hapus baris transaksi | Belum pernah live | Lulus simulasi |
+| Katalog barang: tambah / edit / hapus | Belum pernah live | Lulus simulasi |
+| Tolak hapus barang yang masih dipakai transaksi | Belum pernah live | Lulus simulasi |
+| Tampilan baru (sidebar, toast, modal, mode gelap) | Belum pernah live | Lulus simulasi |
+
+### Yang dijaga saat mengedit
+
+- **Kolom rumus tidak pernah ditulis.** Kolom yang terdaftar di
+  `col_<sheet>_formula` (NAMA BARANG, AMOUNT KANTOR, ANZAR, SALES B) tampil
+  di tabel dan di form edit, tapi dalam keadaan non-aktif dan ditandai `ƒ`.
+- **Hanya sel yang berubah yang ditulis**, dikelompokkan per rentang kolom
+  yang bersebelahan. Menulis satu baris penuh akan mengosongkan kolom rumus
+  yang dilewatinya — itu persis bug yang diperbaiki Fase 8D.
+- **Kolom NO tidak bisa diedit**, karena dikelola renumber.
+- **Baris di luar data ditolak** — baris rumus kosong dan baris TOTAL bukan
+  catatan yang bisa diubah atau dihapus.
+- **Setiap perubahan lewat `logAction_`**, jadi Undo di spreadsheet tetap
+  bisa membatalkannya, dan nama penginputnya tercatat di kolom InputBy.
+- **REKAP ikut disegarkan**, termasuk kode lama kalau kode barangnya diganti.
+- **Menghapus barang ditolak selama masih ada transaksi yang memakainya**,
+  supaya tidak ada baris yang menunjuk ke barang yang sudah tidak ada.
+
+### Warna grafik
+
+Donat status dulu hijau vs merah. Diukur dengan validator: **CVD ΔE 4,1**
+(deuteranopia) — pasangan yang justru paling tidak bisa dibedakan orang buta
+warna. Sekarang **biru = AMAN, merah = PERLU RESTOCK**, yang lolos di mode
+terang maupun gelap, dan legend-nya memakai ikon + angka supaya identitasnya
+tidak bergantung warna saja.
+
+Bar chart Top 10 jadi satu warna; statusnya sudah dijelaskan tabel di
+bawahnya, jadi tidak perlu warna kedua yang tanpa keterangan.
+
+### Yang perlu Anda tes
+
+**Deploy versi baru dulu** — empat halaman ini tidak akan muncul sebelum
+Deploy > Manage deployments > pensil > Version: New version > Deploy.
+
+1. Buka dari komputer: sidebar di kiri, empat menu, bisa pindah halaman.
+2. Buka dari HP: menu jadi bar di bawah layar.
+3. Halaman **Data**: ganti jenis sheet, cari invoice, pindah halaman.
+4. Edit satu baris (ubah JUMLAH) — cek kolom ANZAR di spreadsheet ikut
+   berubah **dan masih berupa rumus**, bukan angka mentah.
+5. Hapus satu baris, lalu Undo dari menu spreadsheet.
+6. Halaman **Barang**: tambah barang baru, edit, lalu coba hapus barang yang
+   masih dipakai transaksi — harus ditolak dengan alasan yang jelas.
+7. Cek dashboard: donat sekarang biru/merah, bukan hijau/merah.
+8. Kalau HP/komputer Anda memakai mode gelap, cek semua halaman ikut gelap.
+
+### Catatan
+
+Menghapus dan mengedit dari web app **tidak bisa di-Ctrl+Z**, tapi bisa lewat
+**Stock Manager > Undo Terakhir** di spreadsheet. Kalimat itu ditulis di kaki
+halaman Data supaya tidak perlu diingat-ingat.

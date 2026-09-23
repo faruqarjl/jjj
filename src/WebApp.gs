@@ -27,23 +27,52 @@
  */
 function doGet(e) {
   const page = normalizeText_(e && e.parameter && e.parameter.page).toLowerCase();
+  const halaman = WEB_PAGES[page] || WEB_PAGES.input;
 
-  if (page === 'dashboard') {
-    return HtmlService.createHtmlOutputFromFile('WebDashboard')
-      .setTitle('Dashboard Stok')
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
-  }
-
-  return HtmlService.createHtmlOutputFromFile('WebAppInput')
-    .setTitle('Input Stok')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1');
+  return HtmlService.createTemplateFromFile(halaman.file)
+    .evaluate()
+    .setTitle(halaman.judul)
+    .addMetaTag('viewport', halaman.viewport);
 }
 
 /**
- * Absolute links for the header nav on both pages. HtmlService renders
- * inside a sandboxed iframe, so a relative "?page=dashboard" would resolve
- * against the sandbox host rather than the web app — the links have to be
- * absolute and open with target="_top".
+ * The pages one deployment serves, picked by ?page=. Anything unrecognised
+ * falls back to the input form, which is the safe default: a mistyped link
+ * lands somewhere useful rather than on an error.
+ *
+ * Only the input form pins the scale — its 16px fields already stop iOS
+ * zooming on focus, while the data tables and charts are worth pinching
+ * into.
+ */
+const WEB_PAGES = {
+  input: {
+    file: 'WebAppInput', judul: 'Input Stok',
+    viewport: 'width=device-width, initial-scale=1, maximum-scale=1'
+  },
+  data: {
+    file: 'WebDataTable', judul: 'Data Transaksi',
+    viewport: 'width=device-width, initial-scale=1'
+  },
+  rekap: {
+    file: 'WebRekap', judul: 'Daftar Barang',
+    viewport: 'width=device-width, initial-scale=1'
+  },
+  dashboard: {
+    file: 'WebDashboard', judul: 'Dashboard Stok',
+    viewport: 'width=device-width, initial-scale=1'
+  }
+};
+
+/** Lets a page pull in the shared styles and helpers. */
+function include(fileName) {
+  return HtmlService.createHtmlOutputFromFile(fileName).getContent();
+}
+
+/**
+ * Absolute links for the nav on every page. HtmlService renders inside a
+ * sandboxed iframe, so a relative "?page=data" would resolve against the
+ * sandbox host rather than the web app — the links have to be absolute and
+ * open with target="_top".
  *
  * Returns blank strings when the script isn't running as a deployed web
  * app (the editor, a test), and the pages simply hide the nav.
@@ -55,13 +84,14 @@ function getWebAppNav() {
   } catch (err) {
     Logger.log('getWebAppNav(): URL web app tidak tersedia — %s', err.message);
   }
-  if (base === '') return { input: '', dashboard: '' };
+  if (base === '') return { input: '', data: '', rekap: '', dashboard: '' };
 
   const joiner = base.indexOf('?') === -1 ? '?' : '&';
-  return {
-    input: base + joiner + 'page=input',
-    dashboard: base + joiner + 'page=dashboard'
-  };
+  const link = {};
+  Object.keys(WEB_PAGES).forEach(function (id) {
+    link[id] = base + joiner + 'page=' + id;
+  });
+  return link;
 }
 
 /** Everything the form needs on load: names, sheet labels, known items. */

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <?!= include('WebStyles'); ?>
+  </head>
+  <body>
+    <div class="app">
+      <nav class="nav">
+        <div class="brand">
+          <span class="dot">◧</span>
+          <span><b>Stock Manager</b><small>PT SIB</small></span>
+        </div>
+        <div id="navItems"></div>
+        <div class="spacer"></div>
+        <div class="foot">SISA STOK &amp; STATUS dihitung dari transaksi, tidak bisa diketik.</div>
+      </nav>
+
+      <div class="main">
+        <div class="topbar">
+          <div>
+            <h1>Daftar Barang</h1>
+            <p class="sub" id="sub">Memuat…</p>
+          </div>
+          <div class="grow"></div>
+          <button class="btn ghost sm" onclick="muat()">↻ Refresh</button>
+          <button class="btn sm" onclick="bukaForm('new')">+ Barang Baru</button>
+        </div>
+
+        <div class="content">
+          <div class="banner" id="banner"></div>
+
+          <div class="grid c3" id="ringkas">
+            <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
+            <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
+            <div class="stat"><div class="skel k"></div><div class="skel v"></div></div>
+          </div>
+
+          <div class="card" style="margin-top:14px">
+            <input id="cari" placeholder="Cari kode atau nama barang…" oninput="cariDitunda()" autocomplete="off">
+          </div>
+
+          <div class="card">
+            <h2 id="judul">Barang</h2>
+            <div id="isi">
+              <div class="skel line"></div><div class="skel line"></div><div class="skel line"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <?!= include('WebShell'); ?>
+    <script>
+      var DATA = null;
+      var timerCari = null;
+      var memuat = false;
+
+      function muatUlangHalaman() { muat(); }
+
+      function cariDitunda() {
+        clearTimeout(timerCari);
+        timerCari = setTimeout(muat, 350);
+      }
+
+      function muat() {
+        if (memuat) return;
+        memuat = true;
+
+        panggil('getRekapPage', { cari: el('cari').value },
+          function (hasil) { memuat = false; DATA = hasil; gambar(hasil); },
+          function (pesan) {
+            memuat = false;
+            el('sub').textContent = 'Gagal memuat';
+            toastErr('Gagal memuat daftar barang', pesan);
+          });
+      }
+
+      function gambar(data) {
+        el('sub').textContent = data.sheet + ' · ' + num(data.totalBaris) + ' barang';
+        el('judul').textContent = data.sheet;
+
+        var aman = data.barang.filter(function (b) { return b.statusKey === 'aman'; }).length;
+        var restok = data.barang.filter(function (b) { return b.statusKey === 'perluRestok'; }).length;
+
+        // Ikon + label, bukan warna saja — yang buta warna tetap bisa baca.
+        el('ringkas').innerHTML =
+          '<div class="stat"><div class="k">Total Barang</div><div class="v">' + num(data.totalBaris) + '</div></div>' +
+          '<div class="stat"><div class="k"><span style="color:var(--status-aman)">●</span> ' +
+            esc(data.label.aman) + '</div><div class="v" style="color:var(--status-aman)">' + num(aman) + '</div></div>' +
+          '<div class="stat"><div class="k"><span style="color:var(--status-restok)">▲</span> ' +
+            esc(data.label.perluRestok) + '</div><div class="v" style="color:var(--status-restok)">' +
+            num(restok) + '</div><div class="n">Stok sudah di batas minimum atau kurang</div></div>';
+
+        if (data.barang.length === 0) {
+          el('isi').innerHTML = '<div class="empty"><b>Belum ada barang</b>' +
+            (el('cari').value.trim() ? 'Tidak ada yang cocok dengan pencarian itu.'
+              : 'Tambahkan lewat tombol "Barang Baru" di atas.') + '</div>';
+          return;
+        }
+
+        var body = data.barang.map(function (b) {
+          var kelas = b.statusKey === 'aman' ? 'aman' : (b.statusKey === 'perluRestok' ? 'restok' : 'lain');
+          var ikon = b.statusKey === 'aman' ? '●' : (b.statusKey === 'perluRestok' ? '▲' : '—');
+          return '<tr>' +
+            '<td><b>' + esc(b.kode) + '</b></td>' +
+            '<td class="wrap">' + esc(b.nama) + '</td>' +
+            '<td class="num">' + num(b.sisaStok) + '</td>' +
+            '<td>' + esc(b.sisaDus) + '</td>' +
+            '<td class="num">' + num(b.minStok) + '</td>' +
+            '<td><span class="pill ' + kelas + '">' + ikon + ' ' + esc(b.status || '—') + '</span></td>' +
+            '<td style="text-align:right;white-space:nowrap">' +
+              '<button class="btn ghost sm" onclick="bukaForm(\'edit\',\'' + esc(b.kode) + '\')">Edit</button> ' +
+              '<button class="btn ghost sm" onclick="konfirmasiHapus(\'' + esc(b.kode) + '\')">Hapus</button>' +
+            '</td></tr>';
+        }).join('');
+
+        el('isi').innerHTML =
+          '<div class="scroll"><table><thead><tr>' +
+            '<th>Kode</th><th>Nama</th><th class="num">Sisa Stok</th><th>Sisa Dus</th>' +
+            '<th class="num">Min Stok</th><th>Status</th><th></th>' +
+          '</tr></thead><tbody>' + body + '</tbody></table></div>';
+      }
+
+      function barangDari(kode) {
+        return (DATA.barang || []).filter(function (b) { return b.kode === kode; })[0];
+      }
+
+      /* ---------- tambah / edit ---------- */
+
+      function bukaForm(mode, kode) {
+        var b = mode === 'edit' ? barangDari(kode) : null;
+        if (mode === 'edit' && !b) return;
+
+        var isi =
+          '<div class="field"><label for="fKode">Kode Barang</label>' +
+            '<input id="fKode" value="' + esc(b ? b.kode : '') + '"' +
+            (mode === 'edit' ? ' disabled' : ' placeholder="mis. 1B01"') + '></div>' +
+          '<div class="field"><label for="fNama">Nama Barang</label>' +
+            '<input id="fNama" value="' + esc(b ? b.nama : '') + '" placeholder="Nama lengkap barang"></div>' +
+          '<div class="grid c2" style="gap:12px">' +
+            '<div class="field"><label for="fAwal">Stok Awal</label>' +
+              '<input id="fAwal" type="number" step="any" value="' + esc(b ? b.stokAwal : '') + '"></div>' +
+            '<div class="field"><label for="fMin">Min Stok (dalam PACK)</label>' +
+              '<input id="fMin" type="number" step="any" value="' + esc(b ? b.minStok : '') + '"></div>' +
+            '<div class="field"><label for="fPack">Isi per Pack</label>' +
+              '<input id="fPack" type="number" step="any" value="' + esc(b ? b.isiPack : '') + '"></div>' +
+            '<div class="field"><label for="fDus">Isi per Dus</label>' +
+              '<input id="fDus" type="number" step="any" value="' + esc(b ? b.isiDus : '') + '"></div>' +
+          '</div>' +
+          '<p class="hint">SISA STOK, SISA DUS dan STATUS dihitung otomatis dari transaksi — ' +
+          'tidak ada isiannya di sini.</p>';
+
+        bukaModal(mode === 'edit' ? 'Edit ' + kode : 'Barang Baru',
+          mode === 'edit' ? DATA.sheet : 'Ditambahkan ke ' + DATA.sheet, isi,
+          [
+            { label: 'Batal', aksi: function () { tutupModal(); } },
+            { label: 'Simpan', gaya: '', aksi: function (tombol) { simpan(mode, tombol); } }
+          ]);
+      }
+
+      function simpan(mode, tombol) {
+        var payload = {
+          mode: mode,
+          user: userAktif(),
+          kode: el('fKode').value,
+          nama: el('fNama').value,
+          stokAwal: el('fAwal').value,
+          minStok: el('fMin').value,
+          isiPack: el('fPack').value,
+          isiDus: el('fDus').value
+        };
+
+        if (!payload.kode.trim()) { toastErr('Kode Barang wajib diisi'); return; }
+        if (!payload.nama.trim()) { toastErr('Nama Barang wajib diisi'); return; }
+
+        busy(tombol, true);
+        panggil('saveRekapFromWeb', payload,
+          function (hasil) {
+            busy(tombol, false, 'Simpan');
+            tutupModal();
+            toastOk('Tersimpan', hasil.message);
+            muat();
+          },
+          function (pesan) { busy(tombol, false, 'Simpan'); toastErr('Gagal menyimpan', pesan); });
+      }
+
+      /* ---------- hapus ---------- */
+
+      function konfirmasiHapus(kode) {
+        var b = barangDari(kode);
+        if (!b) return;
+
+        bukaModal('Hapus ' + kode + '?', b.nama,
+          '<p>Barang ini akan dihapus dari ' + esc(DATA.sheet) + '.</p>' +
+          '<p class="hint">Kalau masih ada transaksi yang memakai kode ini, penghapusan ' +
+          'akan ditolak — transaksinya harus diurus dulu supaya tidak ada baris yang ' +
+          'menunjuk ke barang yang sudah tidak ada.</p>',
+          [
+            { label: 'Batal', aksi: function () { tutupModal(); } },
+            { label: 'Hapus', gaya: 'danger', aksi: function (tombol) { hapus(kode, tombol); } }
+          ]);
+      }
+
+      function hapus(kode, tombol) {
+        busy(tombol, true);
+        panggil('deleteRekapFromWeb', { kode: kode, user: userAktif() },
+          function (hasil) {
+            busy(tombol, false, 'Hapus');
+            tutupModal();
+            toastOk('Barang dihapus', hasil.message);
+            muat();
+          },
+          function (pesan) { busy(tombol, false, 'Hapus'); toastErr('Tidak bisa dihapus', pesan); });
+      }
+
+      pasangNav('rekap');
+      muat();
+    </script>
+  </body>
+</html>

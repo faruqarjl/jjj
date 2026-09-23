@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <?!= include('WebStyles'); ?>
+  </head>
+  <body>
+    <div class="app">
+      <nav class="nav">
+        <div class="brand">
+          <span class="dot">◧</span>
+          <span><b>Stock Manager</b><small>PT SIB</small></span>
+        </div>
+        <div id="navItems"></div>
+        <div class="spacer"></div>
+        <div class="foot">Perubahan dari sini bisa di-undo lewat menu spreadsheet.</div>
+      </nav>
+
+      <div class="main">
+        <div class="topbar">
+          <div>
+            <h1>Data Transaksi</h1>
+            <p class="sub" id="sub">Memuat…</p>
+          </div>
+          <div class="grow"></div>
+          <button class="btn ghost sm" id="refreshBtn" onclick="muat(true)">↻ Refresh</button>
+        </div>
+
+        <div class="content">
+          <div class="banner" id="banner"></div>
+
+          <div class="card">
+            <div class="seg" id="jenisSeg" style="margin-bottom:14px"></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <input id="cari" placeholder="Cari kode, nama, invoice…" style="flex:1 1 220px"
+                     oninput="cariDitunda()" autocomplete="off">
+              <button class="btn ghost" onclick="muat(true)">Cari</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2 id="judulTabel">Baris</h2>
+            <div id="isiTabel">
+              <div class="skel line"></div><div class="skel line"></div>
+              <div class="skel line"></div><div class="skel line"></div>
+            </div>
+            <div id="pager" style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:14px;flex-wrap:wrap"></div>
+          </div>
+
+          <p class="ro">
+            Menghapus baris tidak bisa dibatalkan lewat Ctrl+Z, tapi bisa lewat
+            <b>Stock Manager &gt; Undo Terakhir</b> di spreadsheet.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <?!= include('WebShell'); ?>
+    <script>
+      var JENIS = [
+        { id: 'masuk', label: 'Barang Masuk' },
+        { id: 'retur', label: 'Barang Retur' },
+        { id: 'keluar', label: 'Barang Keluar' }
+      ];
+      var jenisAktif = 'keluar';
+      var halaman = 1;
+      var DATA = null;
+      var timerCari = null;
+      var memuat = false;
+      var SALES = [];
+
+      function muatUlangHalaman() { muat(true); }
+
+      function gambarSeg() {
+        el('jenisSeg').innerHTML = JENIS.map(function (j) {
+          return '<button type="button" aria-pressed="' + (j.id === jenisAktif) + '"' +
+            ' onclick="pilihJenis(\'' + j.id + '\')">' + j.label + '</button>';
+        }).join('');
+      }
+
+      function pilihJenis(id) {
+        if (memuat || id === jenisAktif) return;
+        jenisAktif = id;
+        halaman = 1;
+        gambarSeg();
+        muat(true);
+      }
+
+      function cariDitunda() {
+        clearTimeout(timerCari);
+        timerCari = setTimeout(function () { halaman = 1; muat(true); }, 350);
+      }
+
+      function muat(reset) {
+        if (memuat) return;
+        memuat = true;
+        el('refreshBtn').disabled = true;
+        if (reset) el('sub').textContent = 'Memuat…';
+
+        panggil('getSheetPage',
+          { jenis: jenisAktif, halaman: halaman, cari: el('cari').value },
+          function (hasil) {
+            memuat = false;
+            el('refreshBtn').disabled = false;
+            DATA = hasil;
+            halaman = hasil.halaman;
+            gambar(hasil);
+          },
+          function (pesan) {
+            memuat = false;
+            el('refreshBtn').disabled = false;
+            el('sub').textContent = 'Gagal memuat';
+            toastErr('Gagal memuat data', pesan);
+          });
+      }
+
+      /* ---------- render ---------- */
+
+      function kolomTampil(data) {
+        // Kolom rumus tetap ditampilkan (angkanya penting), tapi ditandai.
+        return data.kolom.filter(function (k) { return k.header !== ''; });
+      }
+
+      function gambar(data) {
+        el('sub').textContent = data.sheet + ' · ' + num(data.totalBaris) + ' baris' +
+          (el('cari').value.trim() ? ' cocok' : '');
+        el('judulTabel').textContent = data.sheet;
+
+        if (data.baris.length === 0) {
+          el('isiTabel').innerHTML = '<div class="empty"><b>Tidak ada baris</b>' +
+            (el('cari').value.trim()
+              ? 'Tidak ada yang cocok dengan pencarian itu.'
+              : 'Sheet ini belum berisi data transaksi.') + '</div>';
+          el('pager').innerHTML = '';
+          return;
+        }
+
+        var kolom = kolomTampil(data);
+        var head = '<th class="num">Baris</th>' + kolom.map(function (k) {
+          return '<th' + (k.rumus ? ' title="Kolom rumus — diisi spreadsheet"' : '') + '>' +
+            esc(k.header) + (k.rumus ? ' ƒ' : '') + '</th>';
+        }).join('') + '<th></th>';
+
+        var body = data.baris.map(function (r) {
+          var sel = kolom.map(function (k) {
+            var v = r.nilai[k.indeks];
+            var kelas = (k.peran === 'jumlah' || k.rumus) ? ' class="num"'
+              : (k.peran === 'nama' ? ' class="wrap"' : '');
+            return '<td' + kelas + '>' + esc(tampilNilai(v, k)) + '</td>';
+          }).join('');
+          return '<tr><td class="rowno num">' + r.baris + '</td>' + sel +
+            '<td style="text-align:right;white-space:nowrap">' +
+              '<button class="btn ghost sm" onclick="bukaEdit(' + r.baris + ')">Edit</button> ' +
+              '<button class="btn ghost sm" onclick="konfirmasiHapus(' + r.baris + ')">Hapus</button>' +
+            '</td></tr>';
+        }).join('');
+
+        el('isiTabel').innerHTML =
+          '<div class="scroll"><table><thead><tr>' + head + '</tr></thead>' +
+          '<tbody>' + body + '</tbody></table></div>';
+
+        gambarPager(data);
+      }
+
+      function tampilNilai(v, kolom) {
+        if (v === '' || v === null || v === undefined) return '';
+        if (kolom.peran === 'tgl') return tanggalPendek(v);
+        if (kolom.rumus && typeof v === 'number') return rupiah(v);
+        return v;
+      }
+
+      function gambarPager(data) {
+        if (data.totalHalaman <= 1) {
+          el('pager').innerHTML = '<span class="hint">Semua ' + num(data.totalBaris) + ' baris tampil.</span>';
+          return;
+        }
+        el('pager').innerHTML =
+          '<span class="hint">Halaman ' + data.halaman + ' dari ' + data.totalHalaman +
+          ' · ' + num(data.totalBaris) + ' baris</span>' +
+          '<span style="display:flex;gap:8px">' +
+            '<button class="btn ghost sm" ' + (data.halaman <= 1 ? 'disabled' : '') +
+              ' onclick="keHalaman(' + (data.halaman - 1) + ')">← Sebelumnya</button>' +
+            '<button class="btn ghost sm" ' + (data.halaman >= data.totalHalaman ? 'disabled' : '') +
+              ' onclick="keHalaman(' + (data.halaman + 1) + ')">Berikutnya →</button>' +
+          '</span>';
+      }
+
+      function keHalaman(n) { halaman = n; muat(false); }
+
+      /* ---------- edit ---------- */
+
+      function barisDari(nomor) {
+        return (DATA.baris || []).filter(function (r) { return r.baris === nomor; })[0];
+      }
+
+      function bukaEdit(nomor) {
+        var baris = barisDari(nomor);
+        if (!baris) return;
+
+        var isi = DATA.kolom.map(function (k) {
+          var v = baris.nilai[k.indeks];
+          var id = 'f_' + k.indeks;
+
+          if (!k.bisaDiubah) {
+            return '<div class="field"><label>' + esc(k.header) +
+              (k.rumus ? ' <span class="hint" style="display:inline">(rumus)</span>' : '') + '</label>' +
+              '<input id="' + id + '" value="' + esc(tampilNilai(v, k)) + '" disabled></div>';
+          }
+
+          if (k.peran === 'tgl') {
+            return '<div class="field"><label for="' + id + '">' + esc(k.header) + '</label>' +
+              '<input id="' + id + '" type="date" value="' + esc(v) + '"></div>';
+          }
+          if (k.peran === 'sales') {
+            var opsi = ['<option value="">— pilih —</option>'].concat(
+              SALES.map(function (s) {
+                return '<option value="' + esc(s) + '"' + (s === v ? ' selected' : '') + '>' + esc(s) + '</option>';
+              })).join('');
+            return '<div class="field"><label for="' + id + '">' + esc(k.header) + '</label>' +
+              '<select id="' + id + '">' + opsi + '</select></div>';
+          }
+          var angka = ['jumlah', 'price', 'diskon', 'diskon2', 'diskon3'].indexOf(k.peran) !== -1;
+          return '<div class="field"><label for="' + id + '">' + esc(k.header) + '</label>' +
+            '<input id="' + id + '"' + (angka ? ' type="number" step="any"' : '') +
+            ' value="' + esc(v) + '"></div>';
+        }).join('');
+
+        bukaModal('Edit baris ' + nomor, DATA.sheet, isi, [
+          { label: 'Batal', aksi: function () { tutupModal(); } },
+          { label: 'Simpan', gaya: '', aksi: function (tombol) { simpanEdit(nomor, tombol); } }
+        ]);
+      }
+
+      function simpanEdit(nomor, tombol) {
+        var nilai = {};
+        DATA.kolom.forEach(function (k) {
+          if (!k.bisaDiubah) return;
+          var input = el('f_' + k.indeks);
+          if (input) nilai[k.header] = input.value;
+        });
+
+        busy(tombol, true);
+        panggil('updateSheetRow',
+          { jenis: jenisAktif, baris: nomor, user: userAktif(), nilai: nilai },
+          function (hasil) {
+            busy(tombol, false, 'Simpan');
+            tutupModal();
+            if (hasil.diubah.length === 0) toastOk('Tidak ada perubahan', hasil.message);
+            else toastOk('Tersimpan', hasil.message);
+            muat(false);
+          },
+          function (pesan) { busy(tombol, false, 'Simpan'); toastErr('Gagal menyimpan', pesan); });
+      }
+
+      /* ---------- hapus ---------- */
+
+      function konfirmasiHapus(nomor) {
+        var baris = barisDari(nomor);
+        if (!baris) return;
+
+        var ringkas = DATA.kolom.filter(function (k) {
+          return ['kode', 'nama', 'jumlah', 'tgl', 'invoice'].indexOf(k.peran) !== -1;
+        }).map(function (k) {
+          return '<div class="field" style="margin-bottom:8px"><label style="margin:0">' +
+            esc(k.header) + '</label><div>' + esc(tampilNilai(baris.nilai[k.indeks], k)) + '</div></div>';
+        }).join('');
+
+        bukaModal('Hapus baris ' + nomor + '?',
+          'Baris di bawahnya akan naik satu, dan REKAP BARANG ikut dihitung ulang.',
+          ringkas + '<p class="hint">Masih bisa dibatalkan lewat Stock Manager &gt; Undo Terakhir.</p>',
+          [
+            { label: 'Batal', aksi: function () { tutupModal(); } },
+            { label: 'Hapus', gaya: 'danger', aksi: function (tombol) { hapus(nomor, tombol); } }
+          ]);
+      }
+
+      function hapus(nomor, tombol) {
+        busy(tombol, true);
+        panggil('deleteSheetRow',
+          { jenis: jenisAktif, baris: nomor, user: userAktif() },
+          function (hasil) {
+            busy(tombol, false, 'Hapus');
+            tutupModal();
+            toastOk('Baris dihapus', hasil.message);
+            muat(false);
+          },
+          function (pesan) { busy(tombol, false, 'Hapus'); toastErr('Gagal menghapus', pesan); });
+      }
+
+      /* ---------- mulai ---------- */
+
+      pasangNav('data');
+      gambarSeg();
+
+      // Daftar sales dipakai dropdown saat edit; kalau gagal, field-nya jadi teks biasa.
+      google.script.run
+        .withSuccessHandler(function (d) { SALES = d.sales || []; })
+        .withFailureHandler(function () {})
+        .getWebAppData();
+
+      muat(true);
+    </script>
+  </body>
+</html>
