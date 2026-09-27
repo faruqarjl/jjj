@@ -979,6 +979,24 @@ function runWebExport(request) {
   const sumber = normalizeText_(payload.sumber).toLowerCase();
   const format = normalizeText_(payload.format).toLowerCase() === 'excel' ? 'excel' : 'pdf';
 
+  // "Semua" menggabung ketiga sheet transaksi + rekap + ringkasan dashboard
+  // ke SATU file: beberapa tab untuk Excel, beberapa bagian untuk PDF.
+  if (normalizeText_(payload.lingkup).toLowerCase() === 'semua') {
+    const gabungan = format === 'excel' ? exportAllToExcel({}) : exportAllToPDF({});
+    Logger.log('runWebExport(): gabungan %s -> %s', format, gabungan.name);
+    return {
+      format: format,
+      lingkup: 'semua',
+      sheet: gabungan.sections.map(function (b) { return b.nama; }).join(', '),
+      sections: gabungan.sections,
+      skipped: gabungan.skipped,
+      url: gabungan.url,
+      name: gabungan.name,
+      rowCount: gabungan.rowCount,
+      message: gabungan.message
+    };
+  }
+
   let sheetName;
   let options = {};
 
@@ -999,6 +1017,7 @@ function runWebExport(request) {
   Logger.log('runWebExport(): %s %s -> %s', format, sheetName, hasil.name);
   return {
     format: format,
+    lingkup: 'halaman',
     sheet: sheetName,
     url: hasil.url,
     name: hasil.name,
@@ -1081,4 +1100,38 @@ function runRedo(request) {
     );
   }
   return { diulang: sebelum, message: sebelum.aksiLabel + ' di "' + sebelum.sheet + '" dijalankan ulang.' };
+}
+
+/**
+ * Sorts a transaction sheet by date from the web app.
+ *
+ * Wraps sortByDate() from Fase 1 unchanged — including the parts that matter
+ * on this workbook: it unmerges permanently, renumbers NO, and (since Fase
+ * 8F) leaves the formula columns alone so the pricing formulas survive.
+ *
+ * request: { kodeAkses, user, jenis, order }
+ */
+function runWebSort(request) {
+  const payload = request || {};
+  assertWebAppAccess_(payload.kodeAkses);
+
+  const user = assertWebAppUser_(payload.user);
+  setInputBy_(user);
+
+  const config = getConfig();
+  const sheetName = webAppSheetFor_(normalizeText_(payload.jenis).toLowerCase(), config);
+  const order = normalizeText_(payload.order).toLowerCase() === 'asc' ? 'asc' : 'desc';
+
+  const jumlah = sortByDate(sheetName, order);
+  Logger.log('runWebSort(): "%s" %s, %s baris, oleh %s.', sheetName, order, jumlah, user);
+
+  return {
+    sheet: sheetName,
+    order: order,
+    rowCount: jumlah,
+    message: jumlah === 0
+      ? 'Sheet "' + sheetName + '" belum ada data untuk diurutkan.'
+      : jumlah + ' baris di "' + sheetName + '" diurutkan ' +
+        (order === 'desc' ? 'dari terbaru ke terlama' : 'dari terlama ke terbaru') + '.'
+  };
 }

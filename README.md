@@ -470,3 +470,55 @@ the PDF. Disabling the fix turns four checks red and `rowCount` back to 20,
 so the suite holds it down. Export now uses `getDataBounds_` like everything
 else, and it gained the search filter the Data page needs so what is exported
 matches what was on screen.
+
+## Fase 8F — Combined export, date sort, and the bug sort was hiding
+
+### sortByDate was flattening every formula
+
+Its last line wrote the sorted rows across the full table width:
+
+```js
+dataRange.setValues(sorted);
+```
+
+That is the Fase 8D mistake again. One click of "Urutkan Tanggal" — from the
+spreadsheet menu, which has shipped since Fase 1 — replaced every NAMA BARANG,
+AMOUNT KANTOR, ANZAR and SALES B formula with the number it happened to be
+showing, permanently and silently.
+
+`writeSortedRows_` now writes every column except the formula ones. Leaving
+those cells alone is not merely safe but correct: the formulas are row-relative,
+so once a row holds a different record they recompute for it themselves.
+Disabling the fix turns four checks red with the formulas read back as `null`.
+
+This surfaced only because the Fase 8F work made every harness load all ten
+`.gs` files the way Apps Script does. Several suites had been loading six, so
+cross-file behaviour went untested — which is precisely where this lived.
+
+### One file, several sections
+
+`buildExportSpreadsheet_` split into `prepareExportSheet_` (copy one source
+into an existing temp spreadsheet, filter it, title it) plus a thin creator.
+The combined export reuses that per source, so the row filtering and the
+"never touch the source sheet" guarantee are the ones already under test.
+
+For xlsx the temp spreadsheet exports as-is, one tab per source. For PDF the
+`gid=` parameter is omitted so Google renders the whole spreadsheet with each
+sheet on a fresh page, and `sheetnames=true` prints each sheet's name as its
+section heading — more reliable than stitching PDFs together.
+
+A fifth sheet, RINGKASAN DASHBOARD, is built from `getDashboardData()`, the
+same function the dashboard page renders from, so the exported summary cannot
+drift from the screen. Copying REKAP BARANG twice — once as "Barang", once as
+"Dashboard" — would have produced two identical sheets instead.
+
+An empty source is skipped and named in the result rather than failing the
+whole export; only an entirely empty workbook is refused. `rowCount` continues
+to mean data rows, so the summary section reports `baris: null` instead of
+mixing derived figures into the count.
+
+### Sort from the web app
+
+`runWebSort` wraps `sortByDate` unchanged. The page confirms first, because
+sorting unmerges permanently (88 merges in the NO column of this workbook) and
+renumbers NO — neither is undoable — and then reloads, since row numbers move.

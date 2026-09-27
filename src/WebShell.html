@@ -207,37 +207,102 @@
 
   /* ---------------- export ---------------- */
 
+  var lingkupExport = 'halaman';
+
   function menuExport(tombol, sumber, ambilFilter) {
     var filter = (ambilFilter ? ambilFilter() : {}) || {};
+    lingkupExport = 'halaman';
+
     bukaModal('Export Data', filter.keterangan || '',
-      '<p>Pilih formatnya. File disimpan ke folder <b>Export</b> di Drive, ' +
-      'dan link-nya langsung muncul di sini.</p>' +
+      '<div class="seg" id="exLingkup" style="margin-bottom:14px">' +
+        '<button type="button" aria-pressed="true" onclick="pilihLingkup(\'halaman\')">' +
+          'Halaman Ini</button>' +
+        '<button type="button" aria-pressed="false" onclick="pilihLingkup(\'semua\')">' +
+          'Semua Data</button>' +
+      '</div>' +
+      '<p id="exPenjelasan"></p>' +
       '<p class="hint" id="exStatus"></p>',
       [
         { label: 'Batal', aksi: function () { tutupModal(); } },
         { label: 'PDF', aksi: function (b) { jalankanExport(b, sumber, filter, 'pdf'); } },
         { label: 'Excel', gaya: '', aksi: function (b) { jalankanExport(b, sumber, filter, 'excel'); } }
       ]);
+
+    window._exFilter = filter;
+    pilihLingkup('halaman');
+  }
+
+  function pilihLingkup(lingkup) {
+    lingkupExport = lingkup;
+    var seg = el('exLingkup');
+    if (seg) {
+      seg.children[0].setAttribute('aria-pressed', String(lingkup === 'halaman'));
+      seg.children[1].setAttribute('aria-pressed', String(lingkup === 'semua'));
+    }
+
+    var filter = window._exFilter || {};
+    var jelas = el('exPenjelasan');
+    if (!jelas) return;
+
+    jelas.innerHTML = lingkup === 'halaman'
+      ? 'Hanya <b>' + esc(filter.keterangan || 'yang sedang tampil') + '</b>. ' +
+        'File disimpan ke folder <b>Export</b> di Drive dan link-nya muncul di sini.'
+      : 'Barang Masuk, Retur, Keluar, Daftar Barang, dan Ringkasan Dashboard ' +
+        'dalam <b>satu file</b> — masing-masing jadi sheet sendiri di Excel, ' +
+        'atau bagian sendiri di PDF. Halaman Input tidak ikut (tidak ada tabelnya).' +
+        '<br><span class="hint">Prosesnya lebih lama karena menggabung banyak data. ' +
+        'Jangan tutup halaman ini sampai selesai.</span>';
   }
 
   function jalankanExport(tombol, sumber, filter, format) {
+    var semua = lingkupExport === 'semua';
     busy(tombol, true);
+
     var status = el('exStatus');
-    if (status) status.textContent = 'Menyiapkan file… ini bisa beberapa detik.';
+    var mulai = Date.now();
+    var jam = null;
+
+    if (status) {
+      status.innerHTML = semua
+        ? '<span class="spinner dark" style="display:inline-block;vertical-align:-2px"></span> ' +
+          'Menggabung semua data jadi satu file… <b id="exDetik">0 detik</b>'
+        : 'Menyiapkan file… ini bisa beberapa detik.';
+
+      // Untuk "Semua Data" prosesnya bisa puluhan detik. Penghitung detik
+      // yang berjalan memberi tahu halamannya hidup, bukan menggantung.
+      if (semua) {
+        jam = setInterval(function () {
+          var d = el('exDetik');
+          if (d) d.textContent = Math.round((Date.now() - mulai) / 1000) + ' detik';
+        }, 1000);
+      }
+    }
+
+    function selesai() {
+      if (jam) clearInterval(jam);
+      busy(tombol, false, format === 'pdf' ? 'PDF' : 'Excel');
+    }
 
     panggil('runWebExport',
-      { sumber: sumber, jenis: filter.jenis, cari: filter.cari, format: format },
+      { sumber: sumber, lingkup: lingkupExport,
+        jenis: filter.jenis, cari: semua ? '' : filter.cari, format: format },
       function (hasil) {
-        busy(tombol, false, format === 'pdf' ? 'PDF' : 'Excel');
+        selesai();
         if (status) {
+          var bagian = (hasil.sections || []).length
+            ? '<br><span class="hint">Isinya: ' +
+              hasil.sections.map(function (b) {
+                return esc(b.nama) + (b.baris === null ? '' : ' (' + num(b.baris) + ')');
+              }).join(' &middot; ') + '</span>'
+            : '';
           status.innerHTML = '<b>' + esc(hasil.name) + '</b> siap (' +
             num(hasil.rowCount) + ' baris). ' +
-            '<a href="' + esc(hasil.url) + '" target="_blank" rel="noopener">Buka file</a>';
+            '<a href="' + esc(hasil.url) + '" target="_blank" rel="noopener">Buka file</a>' + bagian;
         }
         toastOk('Export selesai', hasil.message);
       },
       function (pesan) {
-        busy(tombol, false, format === 'pdf' ? 'PDF' : 'Excel');
+        selesai();
         if (status) status.textContent = '';
         toastErr('Export gagal', pesan);
       });

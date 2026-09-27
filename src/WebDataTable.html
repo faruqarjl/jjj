@@ -37,10 +37,18 @@
 
           <div class="card">
             <div class="seg" id="jenisSeg" style="margin-bottom:14px"></div>
-            <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
               <input id="cari" placeholder="Cari kode, nama, invoice…" style="flex:1 1 220px"
                      oninput="cariDitunda()" autocomplete="off">
               <button class="btn ghost" onclick="muat(true)">Cari</button>
+              <span style="width:1px;height:28px;background:var(--line)"></span>
+              <span class="hint" style="margin:0">Urutkan tanggal:</span>
+              <div class="seg" style="flex:0 0 auto">
+                <button type="button" id="sortDesc" onclick="konfirmasiSort('desc')">
+                  Terbaru → Terlama</button>
+                <button type="button" id="sortAsc" onclick="konfirmasiSort('asc')">
+                  Terlama → Terbaru</button>
+              </div>
             </div>
           </div>
 
@@ -74,6 +82,7 @@
       var timerCari = null;
       var memuat = false;
       var SALES = [];
+      var urutanAktif = '';
 
       function muatUlangHalaman() { muat(true); }
 
@@ -88,6 +97,7 @@
         if (memuat || id === jenisAktif) return;
         jenisAktif = id;
         halaman = 1;
+        urutanAktif = '';      // urutan sheet lain tidak diketahui dari sini
         gambarSeg();
         muat(true);
       }
@@ -173,6 +183,7 @@
         pasangGeser('tableWrap', 'tableScroll');
         pasangDoubleTap('tableScroll', bukaAksiBaris);
         gambarPager(data);
+        tandaiSort();
       }
 
       function tampilNilai(v, kolom) {
@@ -241,6 +252,53 @@
             { label: 'Hapus', gaya: 'danger', aksi: function () { tutupModal(); konfirmasiHapus(nomor); } },
             { label: 'Edit', gaya: '', aksi: function () { tutupModal(); bukaEdit(nomor); } }
           ]);
+      }
+
+      /* ---------- urutkan tanggal ---------- */
+
+      /**
+       * sortByDate() menulis ulang seluruh baris data dan MEMBONGKAR MERGE
+       * secara permanen — di file ini ada 88 merge di kolom NO. Itu tidak
+       * bisa di-Ctrl+Z, jadi tombolnya tidak boleh langsung jalan.
+       */
+      function konfirmasiSort(order) {
+        if (memuat) return;
+        var label = (JENIS.filter(function (j) { return j.id === jenisAktif; })[0] || {}).label;
+        var arah = order === 'desc' ? 'terbaru ke terlama' : 'terlama ke terbaru';
+
+        bukaModal('Urutkan ' + label + '?', 'Berdasarkan kolom tanggal, ' + arah,
+          '<p>Ini menulis ulang urutan baris di spreadsheet, bukan cuma tampilan ' +
+          'di halaman ini.</p>' +
+          '<p class="hint"><b>Tidak bisa dibatalkan:</b> proses ini membongkar ' +
+          'merge cell di kolom NO secara permanen, dan penomoran NO dirapikan ' +
+          'ulang 1..N. Kolom rumus (harga, amount, nama barang) tidak ikut ' +
+          'ditulis ulang, jadi rumusnya tetap utuh.</p>',
+          [
+            { label: 'Batal', aksi: function () { tutupModal(); } },
+            { label: 'Ya, urutkan', gaya: '', aksi: function (b) { jalankanSort(b, order); } }
+          ]);
+      }
+
+      function jalankanSort(tombol, order) {
+        busy(tombol, true);
+        panggil('runWebSort', { jenis: jenisAktif, order: order, user: userAktif() },
+          function (hasil) {
+            busy(tombol, false, 'Ya, urutkan');
+            tutupModal();
+            toastOk('Selesai diurutkan', hasil.message);
+            urutanAktif = order;
+            halaman = 1;
+            muat(true);          // nomor baris berubah, jadi tabelnya dimuat ulang
+          },
+          function (pesan) {
+            busy(tombol, false, 'Ya, urutkan');
+            toastErr('Gagal mengurutkan', pesan);
+          });
+      }
+
+      function tandaiSort() {
+        el('sortDesc').setAttribute('aria-pressed', String(urutanAktif === 'desc'));
+        el('sortAsc').setAttribute('aria-pressed', String(urutanAktif === 'asc'));
       }
 
       /** Apa yang sedang tampil, untuk dipakai tombol Export. */

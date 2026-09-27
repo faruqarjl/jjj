@@ -374,9 +374,52 @@ function sortByDate(sheetName, order) {
     });
   }
 
-  dataRange.setValues(sorted);
+  writeSortedRows_(table, sorted, sheetName, config);
   applyBorders(sheetName);
   return sorted.length;
+}
+
+/**
+ * Writes the sorted rows back — every column EXCEPT the formula ones.
+ *
+ * The obvious `dataRange.setValues(sorted)` writes the full width, which
+ * replaces each formula with the number it happened to be showing. One sort
+ * would have flattened every AMOUNT KANTOR / ANZAR / SALES B / NAMA BARANG
+ * formula in the sheet, permanently and silently.
+ *
+ * Leaving those cells alone is not merely safe, it is correct: the formulas
+ * are row-relative (row 7 reads row 7), so once row 7 holds a different
+ * record they recompute for it by themselves.
+ */
+function writeSortedRows_(table, sorted, sheetName, config) {
+  const rumus = {};
+  formulaColumnNames_(sheetName, config).forEach(function (nama) {
+    try {
+      rumus[resolveColumnIndex_(table.headers, nama, sheetName, table.headerRow)] = true;
+    } catch (err) {
+      Logger.log('writeSortedRows_(): kolom rumus "%s" tidak ada di "%s" — dilewati.', nama, sheetName);
+    }
+  });
+
+  const kolomDitulis = [];
+  for (let c = 1; c <= table.width; c++) {
+    if (!rumus[c]) kolomDitulis.push(c);
+  }
+
+  groupConsecutiveRuns_(kolomDitulis).forEach(function (run) {
+    const blok = sorted.map(function (row) {
+      return row.slice(run.start - 1, run.start - 1 + run.count);
+    });
+    table.sheet.getRange(table.firstDataRow, run.start, blok.length, run.count).setValues(blok);
+  });
+
+  const jumlahRumus = Object.keys(rumus).length;
+  if (jumlahRumus > 0) {
+    Logger.log(
+      'writeSortedRows_("%s"): %s kolom rumus dibiarkan utuh, %s kolom ditulis ulang.',
+      sheetName, jumlahRumus, kolomDitulis.length
+    );
+  }
 }
 
 /** "asc" or "desc"; empty/omitted means "desc". Anything else is a typo. */

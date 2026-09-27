@@ -98,15 +98,43 @@ function exportToExcel(sheetName, options) {
  * only read.
  */
 function buildExportSpreadsheet_(sheetName, settings) {
+  // Diperiksa SEBELUM membuat spreadsheet sementara. Kalau dibalik, sheet
+  // kosong meninggalkan file yatim di Drive setiap kali orang salah klik.
+  assertExportable_(sheetName);
+
+  const timestamp = new Date();
+  const temp = SpreadsheetApp.create(
+    'TEMP Export ' + sheetName + ' ' + formatExportStamp_(timestamp)
+  );
+
+  const prepared = prepareExportSheet_(temp, sheetName, settings, timestamp);
+  removeStrayTempSheets_(temp, [prepared.sheet]);
+  SpreadsheetApp.flush();
+
+  return {
+    spreadsheetId: temp.getId(),
+    sheet: prepared.sheet,
+    rowCount: prepared.rowCount,
+    columnCount: prepared.columnCount,
+    timestamp: timestamp
+  };
+}
+
+/**
+ * Copies one source sheet into an already-created temp spreadsheet, drops the
+ * rows the filters exclude, adds a title block and auto-fits the columns.
+ *
+ * Split out of buildExportSpreadsheet_ so the combined export can put several
+ * of these into a single file — the filtering and the "never touch the source
+ * sheet" guarantee are then shared rather than written twice.
+ */
+function prepareExportSheet_(temp, sheetName, settings, timestamp) {
   const table = getTableInfo_(sheetName);
   const config = getConfig();
   const bounds = getDataBounds_(table, config);
   const sourceLastRow = table.sheet.getLastRow();
   const dataRowCount = bounds.dataRowCount;
-
-  if (dataRowCount < 1) {
-    throw new Error('Sheet "' + sheetName + '" tidak ada data untuk di-export.');
-  }
+  assertExportable_(sheetName);
 
   const start = parseDateInput_(settings.dateRangeStart, false);
   const end = parseDateInput_(settings.dateRangeEnd, true);
@@ -166,18 +194,8 @@ function buildExportSpreadsheet_(sheetName, settings) {
     });
   }
 
-  const timestamp = new Date();
-  const temp = SpreadsheetApp.create(
-    'TEMP Export ' + sheetName + ' ' + formatExportStamp_(timestamp)
-  );
   const copied = table.sheet.copyTo(temp);
   copied.setName(sheetName);
-
-  // create() leaves a default empty sheet behind; the xlsx export would
-  // otherwise carry it as a stray second tab.
-  temp.getSheets().forEach(function (sheet) {
-    if (sheet.getSheetId() !== copied.getSheetId()) temp.deleteSheet(sheet);
-  });
 
   // Bottom-up and grouped into runs, so 400 rows don't cost 400 calls.
   groupConsecutiveRuns_(removals).reverse().forEach(function (run) {
@@ -186,15 +204,32 @@ function buildExportSpreadsheet_(sheetName, settings) {
 
   insertExportTitle_(copied, sheetName, timestamp, start, end, cari);
   copied.autoResizeColumns(1, table.width);
-  SpreadsheetApp.flush();
 
-  return {
-    spreadsheetId: temp.getId(),
-    sheet: copied,
-    rowCount: keptRowCount,
-    columnCount: table.width,
-    timestamp: timestamp
-  };
+  return { sheet: copied, rowCount: keptRowCount, columnCount: table.width };
+}
+
+/** How many real data rows a sheet has, ignoring blank formula rows. */
+function exportRowCount_(sheetName) {
+  const table = getTableInfo_(sheetName);
+  return getDataBounds_(table, getConfig()).dataRowCount;
+}
+
+/** Throws the standard "nothing to export" error for an empty sheet. */
+function assertExportable_(sheetName) {
+  if (exportRowCount_(sheetName) < 1) {
+    throw new Error('Sheet "' + sheetName + '" tidak ada data untuk di-export.');
+  }
+}
+
+/**
+ * SpreadsheetApp.create() leaves a default empty sheet behind, which the xlsx
+ * export would otherwise carry as a stray tab.
+ */
+function removeStrayTempSheets_(temp, keepSheets) {
+  const keepIds = keepSheets.map(function (sheet) { return sheet.getSheetId(); });
+  temp.getSheets().forEach(function (sheet) {
+    if (keepIds.indexOf(sheet.getSheetId()) === -1) temp.deleteSheet(sheet);
+  });
 }
 
 /** Puts the sheet name, export time and any date range above the table. */
@@ -382,4 +417,238 @@ function runExport(payload) {
   return normalizeText_(request.format).toLowerCase() === 'xlsx'
     ? exportToExcel(sheetName, options)
     : exportToPDF(sheetName, options);
+}
+
+/* ------------------------------------------------------------------ *
+ * Combined export — everything in ONE file (Fase 8F)
+ *
+ * Reuses prepareExportSheet_ for each source, so the row filtering and the
+ * "source sheets are never touched" guarantee are exactly the same ones the
+ * single-sheet export already passes its tests on.
+ * ------------------------------------------------------------------ */
+
+const EXPORT_RINGKASAN_SHEET = 'RINGKASAN DASHBOARD';
+
+/** One PDF holding every source as its own section. */
+function exportAllToPDF(options) {
+  const prepared = buildCombinedExportSpreadsheet_(options || {});
+
+  try {
+    // No gid= this time: Google then renders the whole spreadsheet, each
+    // sheet starting on a fresh page, which is the "section terpisah" the
+    // brief asks for without stitching PDFs together by hand.
+    const params = [
+      'format=pdf',
+      'portrait=false',          // combined sheets are wide; landscape fits more
+      'fitw=true', 'size=A4',
+      'gridlines=false', 'printtitle=false',
+      'sheetnames=true',         // prints each sheet's name as its section title
+      'pagenum=CENTER',
+      'top_margin=0.50', 'bottom_margin=0.50',
+      'left_margin=0.50', 'right_margin=0.50'
+    ].join('&');
+
+    const name = buildExportFileName_('SEMUA DATA', 'pdf', prepared.timestamp);
+    const file = saveExportBlob_(prepared.spreadsheetId, params, name);
+
+    Logger.log('exportAllToPDF(): %s bagian, %s baris -> %s',
+      prepared.sections.length, prepared.rowCount, name);
+    return combinedResult_(file, name, prepared, 'PDF');
+  } finally {
+    discardTempSpreadsheet_(prepared.spreadsheetId);
+  }
+}
+
+/** One .xlsx holding every source as its own tab. */
+function exportAllToExcel(options) {
+  const prepared = buildCombinedExportSpreadsheet_(options || {});
+
+  try {
+    const name = buildExportFileName_('SEMUA DATA', 'xlsx', prepared.timestamp);
+    const file = saveExportBlob_(prepared.spreadsheetId, 'format=xlsx', name);
+
+    Logger.log('exportAllToExcel(): %s sheet, %s baris -> %s',
+      prepared.sections.length, prepared.rowCount, name);
+    return combinedResult_(file, name, prepared, 'Excel');
+  } finally {
+    discardTempSpreadsheet_(prepared.spreadsheetId);
+  }
+}
+
+function combinedResult_(file, name, prepared, label) {
+  const dilewati = prepared.skipped.length
+    ? ' Dilewati (kosong): ' + prepared.skipped.join(', ') + '.'
+    : '';
+  return {
+    url: file.getUrl(),
+    name: name,
+    rowCount: prepared.rowCount,
+    sections: prepared.sections,
+    skipped: prepared.skipped,
+    message: label + ' "' + name + '" selesai: ' + prepared.sections.length +
+      ' bagian, ' + prepared.rowCount + ' baris total.' + dilewati
+  };
+}
+
+/**
+ * One temp spreadsheet holding every exportable source.
+ *
+ * A source with no rows is skipped and reported rather than throwing: an
+ * empty BARANG RETUR should not stop the other four from being exported.
+ * Only when nothing at all has data does this fail.
+ */
+function buildCombinedExportSpreadsheet_(settings) {
+  const config = getConfig();
+  const timestamp = new Date();
+
+  const sumber = ['masuk', 'retur', 'keluar']
+    .map(function (jenis) { return normalizeText_(config['sheet_barang_' + jenis]); })
+    .concat([normalizeText_(config.sheet_rekap_barang)])
+    .filter(function (nama) { return nama !== ''; });
+
+  const temp = SpreadsheetApp.create('TEMP Export SEMUA ' + formatExportStamp_(timestamp));
+  const dibuat = [];
+  const sections = [];
+  const skipped = [];
+  let rowCount = 0;
+
+  try {
+    sumber.forEach(function (sheetName) {
+      if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName)) {
+        skipped.push(sheetName);
+        return;
+      }
+      let jumlah;
+      try {
+        jumlah = exportRowCount_(sheetName);
+      } catch (err) {
+        Logger.log('buildCombinedExportSpreadsheet_(): "%s" tidak terbaca — %s', sheetName, err.message);
+        skipped.push(sheetName);
+        return;
+      }
+      if (jumlah < 1) { skipped.push(sheetName); return; }
+
+      // Deliberately no `cari` here: "Export Semua" means everything, and
+      // silently carrying the Data page's search box into the other four
+      // sheets would produce a file nobody asked for.
+      const prepared = prepareExportSheet_(temp, sheetName, {
+        dateRangeStart: settings.dateRangeStart,
+        dateRangeEnd: settings.dateRangeEnd
+      }, timestamp);
+
+      dibuat.push(prepared.sheet);
+      sections.push({ nama: sheetName, baris: prepared.rowCount });
+      rowCount += prepared.rowCount;
+    });
+
+    // Ringkasan tidak punya "baris data" — isinya angka olahan, bukan
+    // catatan. Dilaporkan tanpa jumlah baris supaya rowCount tetap berarti
+    // "berapa baris data yang ikut", bukan campuran dua hal berbeda.
+    const ringkasan = buildRingkasanSheet_(temp, timestamp);
+    if (ringkasan) {
+      dibuat.push(ringkasan.sheet);
+      sections.push({ nama: EXPORT_RINGKASAN_SHEET, baris: null, ringkasan: true });
+    }
+
+    if (dibuat.length === 0) {
+      throw new Error('Tidak ada sheet yang berisi data untuk di-export.');
+    }
+
+    removeStrayTempSheets_(temp, dibuat);
+    SpreadsheetApp.flush();
+  } catch (err) {
+    // Jangan tinggalkan file yatim di Drive kalau gagal di tengah jalan.
+    discardTempSpreadsheet_(temp.getId());
+    throw err;
+  }
+
+  return {
+    spreadsheetId: temp.getId(),
+    timestamp: timestamp,
+    sections: sections,
+    skipped: skipped,
+    rowCount: rowCount
+  };
+}
+
+/**
+ * The dashboard's numbers as a flat sheet, built from getDashboardData() —
+ * the same function the dashboard page renders from, so the export cannot
+ * drift from what was on screen.
+ *
+ * Returns null when the dashboard has nothing to summarise, which keeps an
+ * empty recap from adding a blank section to the file.
+ */
+function buildRingkasanSheet_(temp, timestamp) {
+  let data;
+  try {
+    data = getDashboardData({ rentang: 'semua' });
+  } catch (err) {
+    Logger.log('buildRingkasanSheet_(): dashboard tidak terbaca — %s', err.message);
+    return null;
+  }
+  if (data.kosong) return null;
+
+  const rows = [];
+  rows.push([EXPORT_RINGKASAN_SHEET]);
+  rows.push(['Diexport: ' + formatExportDisplay_(timestamp) + '   |   Periode: ' + data.periode.label]);
+  rows.push([]);
+
+  rows.push(['POSISI STOK SAAT INI']);
+  rows.push(['Total jenis barang', data.summary.totalBarang]);
+  rows.push([data.label.aman, data.summary.aman]);
+  rows.push([data.label.perluRestok, data.summary.perluRestok]);
+  if (data.summary.lainnya > 0) rows.push([data.label.lainnya, data.summary.lainnya]);
+  rows.push([]);
+
+  rows.push(['TRANSAKSI (' + data.periode.label + ')']);
+  rows.push(['', 'Baris', 'Jumlah']);
+  ['masuk', 'retur', 'keluar'].forEach(function (jenis) {
+    const t = data.transaksi[jenis];
+    rows.push([t.sheet || jenis, t.baris, t.jumlah]);
+  });
+  rows.push(['TOTAL', data.transaksi.total.baris, data.transaksi.total.jumlah]);
+  rows.push([]);
+
+  if (data.omset.tersedia) {
+    rows.push(['OMSET (' + data.periode.label + ')']);
+    rows.push(['Total', data.omset.total]);
+    rows.push([]);
+    rows.push(['Per sales', 'Rupiah']);
+    data.omset.perSales.forEach(function (s) { rows.push([s.nama, s.total]); });
+    rows.push([]);
+    rows.push(['Per kolom', 'Rupiah']);
+    data.omset.perKolom.forEach(function (k) { rows.push([k.nama, k.total]); });
+    rows.push([]);
+  }
+
+  if (data.kritis.length > 0) {
+    rows.push(['PERLU RESTOK SEGERA']);
+    rows.push(['Kode', 'Nama', 'Sisa Stok', 'Min Stok', 'Selisih']);
+    data.kritis.forEach(function (item) {
+      rows.push([item.kode, item.nama, item.sisaStok, item.minStok, item.selisih]);
+    });
+    rows.push([]);
+  }
+
+  rows.push(['STOK TERSEDIKIT']);
+  rows.push(['Kode', 'Nama', 'Sisa Stok', 'Sisa Dus', 'Status']);
+  data.stokTersedikit.forEach(function (item) {
+    rows.push([item.kode, item.nama, item.sisaStok, item.sisaDus, item.status]);
+  });
+
+  const lebar = rows.reduce(function (max, row) { return Math.max(max, row.length); }, 1);
+  const rata = rows.map(function (row) {
+    const salinan = row.slice();
+    while (salinan.length < lebar) salinan.push('');
+    return salinan;
+  });
+
+  const sheet = temp.insertSheet(EXPORT_RINGKASAN_SHEET);
+  sheet.getRange(1, 1, rata.length, lebar).setValues(rata);
+  sheet.getRange(1, 1).setFontSize(14).setFontWeight('bold');
+  sheet.getRange(2, 1).setFontSize(9);
+  sheet.autoResizeColumns(1, lebar);
+
+  return { sheet: sheet, rowCount: rata.length };
 }

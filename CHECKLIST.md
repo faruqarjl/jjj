@@ -761,3 +761,108 @@ memakai batas data yang sama dengan bagian lain.
 8. Di HP: coba scroll cepat di tabel beberapa kali — dialog **tidak** boleh
    muncul sendiri. Lalu ketuk dua kali di satu baris — baru muncul.
 9. Cek fontnya: judul & menu Arial Bold, isi sel tabel Times New Roman.
+
+---
+
+## Fase 8F — Export ganda + sort tanggal di web app
+
+### TEMUAN: `sortByDate` menghancurkan kolom rumus
+
+Sebelum menambah tombol sort di web app, saya cek dulu apa yang dilakukan
+`sortByDate`. Baris terakhirnya:
+
+```js
+dataRange.setValues(sorted);   // seluruh LEBAR baris
+```
+
+Itu pola yang persis sama dengan bug Fase 8D. **Satu kali klik "Urutkan
+Tanggal" — dari menu spreadsheet sekalipun — akan mengganti setiap rumus di
+NAMA BARANG, AMOUNT KANTOR, ANZAR, dan SALES B dengan angka hasilnya.**
+Permanen, tanpa pesan apa pun.
+
+Ini **bug yang sudah hidup sejak Fase 1**, bukan dibawa fitur baru. Menu
+"Urutkan Tanggal" sudah ada di spreadsheet Anda sekarang.
+
+Perbaikannya: `writeSortedRows_` menulis semua kolom **kecuali** kolom rumus.
+Membiarkan sel rumus di tempatnya bukan cuma aman, tapi memang benar —
+rumusnya row-relative (baris 7 membaca baris 7), jadi begitu baris 7 berisi
+catatan lain, rumusnya menghitung ulang untuk catatan itu sendiri.
+
+Dibuktikan dengan mematikan perbaikannya: **4 pemeriksaan langsung merah**,
+kolom ANZAR jadi `null` (rumusnya hilang) di semua baris.
+
+### Status
+
+| Fitur | Status | Catatan |
+|---|---|---|
+| `sortByDate` tidak lagi menimpa kolom rumus | Belum pernah live | Lulus simulasi |
+| Export "Halaman Ini" (perilaku lama) | Belum pernah live | Tidak berubah |
+| Export "Semua Data" — 1 file, banyak sheet (Excel) | Belum pernah live | Lulus simulasi |
+| Export "Semua Data" — 1 file, banyak bagian (PDF) | Belum pernah live | Lulus simulasi |
+| Sheet ringkasan dashboard di dalam file gabungan | Belum pernah live | Lulus simulasi |
+| Sort tanggal dari halaman Data | Belum pernah live | Lulus simulasi |
+
+### Keputusan teknis yang saya ambil sendiri
+
+1. **PDF gabungan tanpa `gid=`.** Google lalu merender seluruh spreadsheet,
+   tiap sheet mulai di halaman baru, dengan `sheetnames=true` sehingga nama
+   sheet tercetak jadi judul bagian. Jauh lebih andal daripada menyatukan
+   beberapa PDF sendiri.
+
+2. **Sheet ke-5: RINGKASAN DASHBOARD.** Dibangun dari `getDashboardData()` —
+   fungsi yang sama dengan yang dipakai halaman dashboard, jadi isinya tidak
+   mungkin berbeda dari yang Anda lihat. Kalau saya cuma menyalin REKAP
+   BARANG dua kali (sekali sebagai "Barang", sekali sebagai "Dashboard"),
+   hasilnya dua sheet identik yang tidak berguna.
+
+3. **Sheet kosong dilewati, bukan menggagalkan semuanya.** BARANG RETUR yang
+   kosong tidak boleh membatalkan export empat sheet lainnya. Yang dilewati
+   disebutkan di pesan hasilnya. Kalau *semua* kosong, baru ditolak.
+
+4. **"Export Semua" mengabaikan kotak pencarian.** "Semua" berarti semua;
+   membawa filter halaman Data diam-diam ke empat sheet lain akan
+   menghasilkan file yang tidak diminta siapa pun.
+
+5. **`rowCount` tetap berarti "baris data".** Bagian ringkasan dilaporkan
+   tanpa jumlah baris (`baris: null`), karena isinya angka olahan, bukan
+   catatan — mencampur keduanya membuat angkanya tidak berarti apa-apa.
+
+6. **Sort pakai konfirmasi dulu.** `sortByDate` membongkar merge secara
+   permanen (88 merge di kolom NO file Anda) dan menomori ulang NO. Itu tidak
+   bisa di-Ctrl+Z, jadi tombolnya tidak langsung jalan — dialognya
+   menyebutkan keduanya, dan juga menyebutkan bahwa kolom rumus tetap aman.
+
+7. **Penghitung detik untuk "Export Semua".** Prosesnya menggabung lima
+   sumber; tanpa penanda yang bergerak, halaman terlihat menggantung.
+
+### Perbaikan lain yang ikut
+
+- **Semua 15 suite sekarang memuat kesepuluh file `.gs`**, seperti yang
+  dilakukan Apps Script. Sebelumnya beberapa suite cuma memuat 6 file, jadi
+  fungsi lintas-file tidak teruji — itulah yang menyembunyikan bug sort ini.
+- **Export tidak lagi meninggalkan file yatim di Drive** kalau gagal di tengah
+  jalan. Refactor saya sempat memindahkan `SpreadsheetApp.create()` ke atas
+  validasi; satu pemeriksaan lama langsung merah dan menangkapnya.
+
+### Yang perlu Anda tes
+
+**Deploy versi baru dulu.**
+
+1. Halaman Data, tab Barang Keluar → Export → **Halaman Ini** → PDF. Sama
+   seperti sebelumnya.
+2. Export → **Semua Data** → Excel. Satu file, buka: harus ada 5 tab
+   (Masuk, Retur, Keluar, Rekap, Ringkasan Dashboard), isinya tidak tercampur.
+3. Export → **Semua Data** → PDF. Satu file, tiap bagian mulai di halaman
+   baru dengan nama sheet tercetak di atasnya.
+4. **PENTING — tes rumus:** sebelum sort, catat isi satu sel di kolom ANZAR.
+   Klik "Terbaru → Terlama", konfirmasi. Lalu **klik sel ANZAR itu dan lihat
+   formula bar** — harus masih rumus `=IF(...)`, bukan angka mentah.
+5. Sort "Terlama → Terbaru", pastikan urutannya kebalikan.
+6. Setelah sort, double-tap satu baris → Edit. Pastikan yang berubah memang
+   baris itu, bukan baris lain.
+
+### Catatan
+
+Sort mengubah urutan **di spreadsheet**, bukan cuma tampilan web app. Tombol
+arah yang aktif hanya diingat selama Anda di tab itu — pindah tab menghapus
+tandanya, karena urutan sheet lain tidak bisa diketahui tanpa membacanya.
