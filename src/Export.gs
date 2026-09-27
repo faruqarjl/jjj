@@ -99,8 +99,10 @@ function exportToExcel(sheetName, options) {
  */
 function buildExportSpreadsheet_(sheetName, settings) {
   const table = getTableInfo_(sheetName);
+  const config = getConfig();
+  const bounds = getDataBounds_(table, config);
   const sourceLastRow = table.sheet.getLastRow();
-  const dataRowCount = sourceLastRow - table.headerRow;
+  const dataRowCount = bounds.dataRowCount;
 
   if (dataRowCount < 1) {
     throw new Error('Sheet "' + sheetName + '" tidak ada data untuk di-export.');
@@ -108,25 +110,55 @@ function buildExportSpreadsheet_(sheetName, settings) {
 
   const start = parseDateInput_(settings.dateRangeStart, false);
   const end = parseDateInput_(settings.dateRangeEnd, true);
+  const cari = normalizeText_(settings.cari).toLowerCase();
   let keptRowCount = dataRowCount;
   let removals = [];
 
-  if (start !== null || end !== null) {
-    const dateColumnName = resolveDateColumnName_(sheetName);
-    if (dateColumnName === null) {
-      throw new Error(
-        'Sheet "' + sheetName + '" tidak punya kolom tanggal, jadi filter tanggal tidak bisa dipakai. ' +
-        'Kosongkan filter tanggal untuk meng-export semuanya.'
-      );
+  // Everything past the last real data row goes: the blank formula rows and
+  // the TOTAL footer are not records, and exporting 400 empty lines under
+  // the table made the PDF look broken.
+  for (let row = bounds.lastDataRow + 1; row <= sourceLastRow; row++) {
+    removals.push(row);
+  }
+
+  if (start !== null || end !== null || cari !== '') {
+    const rows = table.sheet.getRange(table.firstDataRow, 1, dataRowCount, table.width).getValues();
+    let keep = rows.map(function () { return true; });
+
+    if (start !== null || end !== null) {
+      const dateColumnName = resolveDateColumnName_(sheetName);
+      if (dateColumnName === null) {
+        throw new Error(
+          'Sheet "' + sheetName + '" tidak punya kolom tanggal, jadi filter tanggal tidak bisa dipakai. ' +
+          'Kosongkan filter tanggal untuk meng-export semuanya.'
+        );
+      }
+      const dateIndex = resolveColumnIndex_(
+        table.headers, dateColumnName, sheetName, table.headerRow) - 1;
+      const byDate = filterRowsByDate_(rows, dateIndex, start, end);
+      keep = keep.map(function (ok, i) { return ok && byDate[i]; });
     }
 
-    const dateIndex = resolveColumnIndex_(table.headers, dateColumnName, sheetName, table.headerRow) - 1;
-    const rows = table.sheet.getRange(table.firstDataRow, 1, dataRowCount, table.width).getValues();
-    const keep = filterRowsByDate_(rows, dateIndex, start, end);
+    // Same match the Data page's search box uses, so what is exported is
+    // what was on screen when the button was pressed.
+    if (cari !== '') {
+      keep = keep.map(function (ok, i) {
+        return ok && rows[i].some(function (cell) {
+          return String(webCellValue_(cell)).toLowerCase().indexOf(cari) !== -1;
+        });
+      });
+    }
 
     keptRowCount = keep.filter(Boolean).length;
     if (keptRowCount === 0) {
-      throw new Error('Tidak ada baris di "' + sheetName + '" yang masuk rentang tanggal itu.');
+      // Sebutkan filter mana yang menyaring, supaya jelas apa yang harus
+      // diubah — "filter" saja tidak memberi tahu apa-apa.
+      const sebab = [];
+      if (start !== null || end !== null) sebab.push('rentang tanggal itu');
+      if (cari !== '') sebab.push('pencarian "' + normalizeText_(settings.cari) + '"');
+      throw new Error(
+        'Tidak ada baris di "' + sheetName + '" yang cocok dengan ' + sebab.join(' dan ') + '.'
+      );
     }
     // Row numbers in the copy match the source until anything is deleted.
     keep.forEach(function (isKept, i) {
@@ -152,7 +184,7 @@ function buildExportSpreadsheet_(sheetName, settings) {
     copied.deleteRows(run.start, run.count);
   });
 
-  insertExportTitle_(copied, sheetName, timestamp, start, end);
+  insertExportTitle_(copied, sheetName, timestamp, start, end, cari);
   copied.autoResizeColumns(1, table.width);
   SpreadsheetApp.flush();
 
@@ -166,14 +198,15 @@ function buildExportSpreadsheet_(sheetName, settings) {
 }
 
 /** Puts the sheet name, export time and any date range above the table. */
-function insertExportTitle_(sheet, sheetName, timestamp, start, end) {
+function insertExportTitle_(sheet, sheetName, timestamp, start, end, cari) {
   sheet.insertRowsBefore(1, 3);
 
   const subtitle = 'Diexport: ' + formatExportDisplay_(timestamp) +
     (start !== null || end !== null
       ? '   |   Rentang: ' + (start === null ? 'awal' : formatExportDisplay_(start)) +
         ' s/d ' + (end === null ? 'akhir' : formatExportDisplay_(end))
-      : '');
+      : '') +
+    (normalizeText_(cari) === '' ? '' : '   |   Filter: "' + cari + '"');
 
   sheet.getRange(1, 1).setValue(sheetName).setFontSize(14).setFontWeight('bold');
   sheet.getRange(2, 1).setValue(subtitle).setFontSize(9);

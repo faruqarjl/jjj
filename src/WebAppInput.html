@@ -24,6 +24,10 @@
             <p class="sub" id="sub">Memuat…</p>
           </div>
           <div class="grow"></div>
+          <button class="btn ghost sm" onclick="konfirmasiUndoRedo('undo')"
+                  title="Membatalkan aksi TERAKHIR di seluruh sistem — bisa jadi bukan aksi Anda">↶ Undo</button>
+          <button class="btn ghost sm" onclick="konfirmasiUndoRedo('redo')"
+                  title="Menjalankan ulang aksi yang barusan dibatalkan, siapa pun yang membatalkannya">↷ Redo</button>
           <div class="seg" id="tabSeg">
             <button type="button" aria-pressed="true" onclick="showTab('manual')" id="tabManual">Input Manual</button>
             <button type="button" aria-pressed="false" onclick="showTab('batch')" id="tabBatch">Batch Invoice</button>
@@ -174,6 +178,8 @@
 
 
       /* ---------- load ---------- */
+
+      function muatUlangHalaman() { load(); }
 
       function load() {
         google.script.run

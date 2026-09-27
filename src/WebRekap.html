@@ -24,6 +24,11 @@
             <p class="sub" id="sub">Memuat…</p>
           </div>
           <div class="grow"></div>
+          <button class="btn ghost sm" onclick="konfirmasiUndoRedo('undo')"
+                  title="Membatalkan aksi TERAKHIR di seluruh sistem — bisa jadi bukan aksi Anda">↶ Undo</button>
+          <button class="btn ghost sm" onclick="konfirmasiUndoRedo('redo')"
+                  title="Menjalankan ulang aksi yang barusan dibatalkan, siapa pun yang membatalkannya">↷ Redo</button>
+          <button class="btn ghost sm" onclick="menuExport(this, 'rekap')">⇩ Export</button>
           <button class="btn ghost sm" onclick="muat()">↻ Refresh</button>
           <button class="btn sm" onclick="bukaForm('new')">+ Barang Baru</button>
         </div>
@@ -103,7 +108,7 @@
         var body = data.barang.map(function (b) {
           var kelas = b.statusKey === 'aman' ? 'aman' : (b.statusKey === 'perluRestok' ? 'restok' : 'lain');
           var ikon = b.statusKey === 'aman' ? '●' : (b.statusKey === 'perluRestok' ? '▲' : '—');
-          return '<tr>' +
+          return '<tr class="dapatDiklik" data-baris="' + esc(b.kode) + '">' +
             '<td><b>' + esc(b.kode) + '</b></td>' +
             '<td class="wrap">' + esc(b.nama) + '</td>' +
             '<td class="num">' + num(b.sisaStok) + '</td>' +
@@ -117,14 +122,52 @@
         }).join('');
 
         el('isi').innerHTML =
-          '<div class="scroll"><table><thead><tr>' +
-            '<th>Kode</th><th>Nama</th><th class="num">Sisa Stok</th><th>Sisa Dus</th>' +
-            '<th class="num">Min Stok</th><th>Status</th><th></th>' +
-          '</tr></thead><tbody>' + body + '</tbody></table></div>';
+          '<div class="tableWrap" id="tableWrap">' +
+            '<div class="scroll" id="tableScroll"><table><thead><tr>' +
+              '<th>Kode</th><th>Nama</th><th class="num">Sisa Stok</th><th>Sisa Dus</th>' +
+              '<th class="num">Min Stok</th><th>Status</th><th></th>' +
+            '</tr></thead><tbody>' + body + '</tbody></table></div>' +
+          '</div>' +
+          '<p class="tapHint">Klik dua kali (atau ketuk dua kali di HP) pada sebuah baris ' +
+          'untuk Edit / Hapus.</p>';
+
+        pasangGeser('tableWrap', 'tableScroll');
+        pasangDoubleTap('tableScroll', bukaAksiBarang);
       }
 
       function barangDari(kode) {
         return (DATA.barang || []).filter(function (b) { return b.kode === kode; })[0];
+      }
+
+      /**
+       * Menu Edit/Hapus dari klik ganda pada baris katalog. SISA STOK,
+       * SISA DUS dan STATUS dihitung dari transaksi, jadi disebutkan di sini
+       * supaya jelas kenapa tidak ada isiannya di form edit.
+       */
+      function bukaAksiBarang(tr) {
+        var kode = tr.getAttribute('data-baris');
+        var b = barangDari(kode);
+
+        if (!b) {
+          bukaModal('Barang tidak ditemukan', kode,
+            '<p>Barang ini sudah tidak ada di daftar — mungkin baru saja dihapus ' +
+            'atau kodenya diubah dari tempat lain.</p>' +
+            '<p class="hint">Tekan Refresh untuk memuat ulang daftarnya.</p>',
+            [{ label: 'Mengerti', gaya: '', aksi: function () { tutupModal(); } }]);
+          return;
+        }
+
+        bukaModal(b.kode, b.nama,
+          '<p>Sisa stok <b>' + num(b.sisaStok) + '</b> &middot; min <b>' + num(b.minStok) +
+          '</b> pack &middot; status <b>' + esc(b.status || '—') + '</b></p>' +
+          '<p class="hint">SISA STOK, SISA DUS dan STATUS dihitung dari transaksi, ' +
+          'jadi tidak bisa diketik — yang bisa diubah cuma nama, stok awal, ' +
+          'min stok, dan isi per pack/dus.</p>',
+          [
+            { label: 'Batal', aksi: function () { tutupModal(); } },
+            { label: 'Hapus', gaya: 'danger', aksi: function () { tutupModal(); konfirmasiHapus(kode); } },
+            { label: 'Edit', gaya: '', aksi: function () { tutupModal(); bukaForm('edit', kode); } }
+          ]);
       }
 
       /* ---------- tambah / edit ---------- */

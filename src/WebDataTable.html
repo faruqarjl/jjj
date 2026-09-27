@@ -24,6 +24,11 @@
             <p class="sub" id="sub">Memuat…</p>
           </div>
           <div class="grow"></div>
+          <button class="btn ghost sm" onclick="konfirmasiUndoRedo('undo')"
+                  title="Membatalkan aksi TERAKHIR di seluruh sistem — bisa jadi bukan aksi Anda">↶ Undo</button>
+          <button class="btn ghost sm" onclick="konfirmasiUndoRedo('redo')"
+                  title="Menjalankan ulang aksi yang barusan dibatalkan, siapa pun yang membatalkannya">↷ Redo</button>
+          <button class="btn ghost sm" onclick="menuExport(this, 'data', filterExport)">⇩ Export</button>
           <button class="btn ghost sm" id="refreshBtn" onclick="muat(true)">↻ Refresh</button>
         </div>
 
@@ -149,7 +154,8 @@
               : (k.peran === 'nama' ? ' class="wrap"' : '');
             return '<td' + kelas + '>' + esc(tampilNilai(v, k)) + '</td>';
           }).join('');
-          return '<tr><td class="rowno num">' + r.baris + '</td>' + sel +
+          return '<tr class="dapatDiklik" data-baris="' + r.baris + '">' +
+            '<td class="rowno num">' + r.baris + '</td>' + sel +
             '<td style="text-align:right;white-space:nowrap">' +
               '<button class="btn ghost sm" onclick="bukaEdit(' + r.baris + ')">Edit</button> ' +
               '<button class="btn ghost sm" onclick="konfirmasiHapus(' + r.baris + ')">Hapus</button>' +
@@ -157,9 +163,15 @@
         }).join('');
 
         el('isiTabel').innerHTML =
-          '<div class="scroll"><table><thead><tr>' + head + '</tr></thead>' +
-          '<tbody>' + body + '</tbody></table></div>';
+          '<div class="tableWrap" id="tableWrap">' +
+            '<div class="scroll" id="tableScroll"><table><thead><tr>' + head + '</tr></thead>' +
+            '<tbody>' + body + '</tbody></table></div>' +
+          '</div>' +
+          '<p class="tapHint">Klik dua kali (atau ketuk dua kali di HP) pada sebuah baris ' +
+          'untuk Edit / Hapus.</p>';
 
+        pasangGeser('tableWrap', 'tableScroll');
+        pasangDoubleTap('tableScroll', bukaAksiBaris);
         gambarPager(data);
       }
 
@@ -187,6 +199,60 @@
       }
 
       function keHalaman(n) { halaman = n; muat(false); }
+
+      /* ---------- aksi dari double-click / double-tap ---------- */
+
+      /**
+       * Muncul saat sebuah baris diklik dua kali. Pengaman yang sama dengan
+       * tombol Edit/Hapus berlaku di sini — dan kalau baris itu memang tidak
+       * boleh disentuh, alasannya ditampilkan, bukan gagal diam-diam.
+       */
+      function bukaAksiBaris(tr) {
+        var nomor = Number(tr.getAttribute('data-baris'));
+        var baris = barisDari(nomor);
+
+        if (!baris) {
+          bukaModal('Baris ini tidak bisa diubah', 'Baris ' + nomor,
+            '<p>Baris ini bukan baris data — kemungkinan baris TOTAL, baris ' +
+            'rumus kosong, atau barisnya sudah berpindah sejak halaman ini dimuat.</p>' +
+            '<p class="hint">Coba tekan Refresh dulu. Kalau tetap tidak muncul, ' +
+            'baris itu memang bukan catatan yang bisa diedit dari sini.</p>',
+            [{ label: 'Mengerti', gaya: '', aksi: function () { tutupModal(); } }]);
+          return;
+        }
+
+        var ringkas = DATA.kolom.filter(function (k) {
+          return ['kode', 'nama', 'jumlah', 'invoice'].indexOf(k.peran) !== -1;
+        }).map(function (k) {
+          return esc(k.header) + ': <b>' + esc(tampilNilai(baris.nilai[k.indeks], k)) + '</b>';
+        }).join(' &middot; ');
+
+        var terkunci = DATA.kolom.filter(function (k) { return k.rumus; })
+          .map(function (k) { return k.header; });
+
+        bukaModal('Baris ' + nomor, DATA.sheet,
+          '<p>' + (ringkas || 'Baris ' + nomor) + '</p>' +
+          (terkunci.length
+            ? '<p class="hint">Kolom <b>' + esc(terkunci.join(', ')) + '</b> diisi rumus ' +
+              'spreadsheet, jadi tidak ikut bisa diubah.</p>'
+            : ''),
+          [
+            { label: 'Batal', aksi: function () { tutupModal(); } },
+            { label: 'Hapus', gaya: 'danger', aksi: function () { tutupModal(); konfirmasiHapus(nomor); } },
+            { label: 'Edit', gaya: '', aksi: function () { tutupModal(); bukaEdit(nomor); } }
+          ]);
+      }
+
+      /** Apa yang sedang tampil, untuk dipakai tombol Export. */
+      function filterExport() {
+        var label = (JENIS.filter(function (j) { return j.id === jenisAktif; })[0] || {}).label;
+        var cari = el('cari').value.trim();
+        return {
+          jenis: jenisAktif,
+          cari: cari,
+          keterangan: label + (cari ? ' — hanya yang cocok dengan "' + cari + '"' : ' — seluruh isi sheet')
+        };
+      }
 
       /* ---------- edit ---------- */
 

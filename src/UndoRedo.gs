@@ -128,6 +128,7 @@ function readActionLogEntries_(sheet) {
   return values.map(function (row, i) {
     return {
       logRow: i + 2,
+      waktu: row[0] instanceof Date ? row[0] : null,
       actionType: normalizeText_(row[1]),
       sheetName: normalizeText_(row[2]),
       rowIndex: Number(row[3]),

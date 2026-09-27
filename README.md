@@ -425,3 +425,48 @@ a single hue; the table beneath it already says which items need reordering.
 
 Chart colours are read from CSS custom properties at render time, so dark mode
 uses its own steps rather than an inverted copy of the light ones.
+
+## Fase 8E — Interface work, and one bug it uncovered
+
+Front-end only, plus thin wrappers over server functions that already
+existed. No business logic was touched.
+
+### Two decisions taken without asking, as the brief allowed
+
+**Automatic dark mode is gone.** The theme is now forced light with a plain
+white background, so keeping a dark palette would mean maintaining two sets
+of tokens for a mode the owner does not want, and contrast-checking every new
+colour twice.
+
+**Chart colours did not follow the nav to green.** The status donut stays
+blue for safe and red for reorder: green against red fails the colour-vision
+gate at ΔE 4.1, which is why blue was chosen in the first place. Green is now
+chrome — nav, buttons, table headers — and never a data encoding.
+
+### Contrast, measured
+
+White on `#0f6b3d` is 6.58:1, inactive nav text 5.87:1, the nav footer 5.08:1,
+and green-as-text on white 6.58:1 — all clear of 4.5:1. Cell borders are pure
+black on white at 21:1.
+
+### Interaction notes
+
+Table cells use `border-collapse: collapse`, so adjacent borders merge into a
+single line instead of doubling. The horizontal scroll buttons appear only
+when the table is actually wider than its container and disable themselves at
+each end; they supplement the native scroll rather than replacing it.
+
+Double-tap is separated from a fast scroll by requiring both a gap under
+400 ms and a finger movement under 14px. Without the second condition, flicking
+through a table on a phone opens the dialog repeatedly.
+
+### The bug this uncovered
+
+`buildExportSpreadsheet_` still sized its data range from `getLastRow()` — the
+same mistake Fase 8D fixed everywhere else, missed because export had never
+been used on this workbook. Exporting BARANG KELUAR would have produced 20
+rows instead of 4, carrying the blank formula rows and the TOTAL footer into
+the PDF. Disabling the fix turns four checks red and `rowCount` back to 20,
+so the suite holds it down. Export now uses `getDataBounds_` like everything
+else, and it gained the search filter the Data page needs so what is exported
+matches what was on screen.

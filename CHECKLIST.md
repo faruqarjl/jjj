@@ -668,3 +668,96 @@ Deploy > Manage deployments > pensil > Version: New version > Deploy.
 Menghapus dan mengedit dari web app **tidak bisa di-Ctrl+Z**, tapi bisa lewat
 **Stock Manager > Undo Terakhir** di spreadsheet. Kalimat itu ditulis di kaki
 halaman Data supaya tidak perlu diingat-ingat.
+
+---
+
+## Fase 8E — Perbaikan tampilan & akses fitur
+
+Murni front-end plus membuka function server yang **sudah ada**. Tidak ada
+logic bisnis yang disentuh.
+
+### Tujuh perubahan
+
+| # | Perubahan | Status |
+|---|---|---|
+| 1 | Tema putih polos + sidebar hijau | Belum pernah live |
+| 2 | Export PDF/Excel di halaman Data, Barang, Dashboard | Belum pernah live |
+| 3 | Undo & Redo dengan konfirmasi rincian dulu | Belum pernah live |
+| 4 | Border hitam di setiap sel tabel | Belum pernah live |
+| 5 | Tombol geser tabel kiri–kanan | Belum pernah live |
+| 6 | Double-click / double-tap baris → Edit / Hapus | Belum pernah live |
+| 7 | Judul Arial Bold, isi tabel Times New Roman | Belum pernah live |
+
+### Keputusan yang saya ambil sendiri (sesuai izin di brief)
+
+**Dark mode otomatis DIHAPUS.** Alasannya: Anda minta tema dipaksa terang
+dengan latar putih polos. Mempertahankan dark mode berarti merawat dua palet
+untuk tema yang salah satunya tidak Anda inginkan, dan tiap warna baru harus
+diuji kontras dua kali. Sekarang satu tema saja — kalau HP Anda dalam mode
+gelap, halaman ini tetap putih.
+
+**Warna grafik TIDAK ikut jadi hijau.** Donat status tetap biru = AMAN,
+merah = PERLU RESTOCK. Hijau vs merah gagal uji buta warna (ΔE 4,1
+deuteranopia), dan itu alasan yang sama kenapa dipilih biru di Fase 9.
+Hijau sekarang dipakai untuk navigasi dan tombol — chrome, bukan data.
+
+### Kontras yang diukur, bukan dikira
+
+| Kombinasi | Rasio | Syarat |
+|---|---|---|
+| Putih di atas hijau `#0f6b3d` | **6,58:1** | ≥ 4,5 |
+| Teks menu non-aktif `#e8f5ee` di atas hijau | **5,87:1** | ≥ 4,5 |
+| Teks kaki `#cfe8db` di atas hijau | **5,08:1** | ≥ 4,5 |
+| Hijau `#0f6b3d` sebagai teks di atas putih | **6,58:1** | ≥ 4,5 |
+| Border hitam di atas putih | **21:1** | — |
+
+### Catatan tiap poin
+
+- **Border sel** pakai `border-collapse: collapse`, jadi garis antar sel
+  menyatu — tidak ada garis dobel di tepi yang bersebelahan.
+- **Tombol geser** hanya muncul kalau tabelnya memang lebih lebar dari layar,
+  dan panahnya mati sendiri di ujung kiri/kanan. Ini **melengkapi** scroll
+  manual, bukan menggantikan.
+- **Double-tap di HP** dibedakan dari scroll cepat: dua ketukan dihitung hanya
+  kalau jaraknya < 400 ms **dan** jari hampir tidak bergerak (< 14 px). Tanpa
+  syarat kedua, menggulir cepat akan terus memunculkan dialog.
+- **Double-tap pada baris terlarang** (TOTAL, baris rumus kosong) memunculkan
+  penjelasan kenapa tidak bisa, bukan gagal diam-diam. Di praktiknya baris itu
+  tidak pernah sampai ke tabel — tapi penolakannya tetap ada di server, jadi
+  tidak ada jalan tembus lewat konsol browser sekalipun.
+- **Export dari Dashboard** = isi sheet REKAP BARANG. Dashboard meringkas
+  sheet itu, dan tidak ada sheet "ringkasan" tersendiri; membuat salinan
+  angka kedua justru bikin dua sumber yang bisa berbeda.
+- **Halaman Input tidak punya tombol Export** (tidak ada tabel di situ),
+  sesuai konfirmasi Anda. Tapi Undo/Redo tetap ada di keempat halaman.
+
+### Bug lama yang ikut ketahuan dan diperbaiki
+
+`buildExportSpreadsheet_` di Export.gs masih memakai `getLastRow()` — bug
+yang sama dengan Fase 8D, tapi luput waktu itu karena export belum pernah
+dipakai di file ini. Akibatnya **export BARANG KELUAR akan membawa 20 baris
+(termasuk baris rumus kosong dan baris TOTAL) padahal datanya cuma 4**.
+
+Saya buktikan dengan mematikan perbaikannya: 4 pemeriksaan langsung merah,
+`rowCount` jadi 20 dan baris TOTAL ikut tersalin ke PDF. Sekarang export
+memakai batas data yang sama dengan bagian lain.
+
+### Yang perlu Anda tes
+
+**Deploy versi baru dulu.**
+
+1. Buka keempat halaman: latar putih, sidebar hijau, teks terbaca jelas.
+2. Halaman Data, tab Barang Keluar → Export → PDF. Cek isinya **cuma** data
+   tab itu, tanpa baris kosong di bawah dan tanpa baris TOTAL.
+3. Ketik sesuatu di kotak cari, lalu Export lagi — hasilnya harus cuma baris
+   yang cocok, dan filternya tertulis di judul file.
+4. Klik Undo → muncul rincian (aksi, sheet, baris, waktu, oleh siapa)
+   **sebelum** dijalankan. Batalkan dulu sekali, pastikan tidak ada yang
+   berubah. Baru jalankan, lalu cek Sheets.
+5. Tabel Data & Barang: garis hitam rapi di semua sel, tidak dobel.
+6. Perkecil jendela sampai tabel kepotong → dua tombol panah muncul di pojok
+   kanan bawah dan menggeser tabel dengan halus.
+7. Double-click satu baris → muncul pilihan Edit / Hapus.
+8. Di HP: coba scroll cepat di tabel beberapa kali — dialog **tidak** boleh
+   muncul sendiri. Lalu ketuk dua kali di satu baris — baru muncul.
+9. Cek fontnya: judul & menu Arial Bold, isi sel tabel Times New Roman.

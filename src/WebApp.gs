@@ -950,3 +950,135 @@ function formatDashboardTime_(date) {
   const timeZone = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
   return Utilities.formatDate(date, timeZone, 'dd-MM-yyyy HH:mm');
 }
+
+/* ------------------------------------------------------------------ *
+ * Export, undo and redo from the web app (Fase 8E)
+ *
+ * Thin wrappers only. The work is done by exportToPDF/exportToExcel in
+ * Export.gs and undoLastAction/redoAction in UndoRedo.gs, unchanged — these
+ * exist so the browser has something to call, and so the access code is
+ * checked before any of it runs.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Runs an export and hands back the Drive link.
+ *
+ * request: { kodeAkses, sumber, jenis, cari, format }
+ *   sumber 'data'      -> the transaction sheet named by `jenis`, honouring `cari`
+ *   sumber 'rekap'     -> the recap sheet
+ *   sumber 'dashboard' -> also the recap sheet, which is what the dashboard
+ *                         summarises; there is no separate summary sheet to
+ *                         export, and inventing one would be a second copy
+ *                         of numbers that already exist.
+ */
+function runWebExport(request) {
+  const payload = request || {};
+  assertWebAppAccess_(payload.kodeAkses);
+
+  const config = getConfig();
+  const sumber = normalizeText_(payload.sumber).toLowerCase();
+  const format = normalizeText_(payload.format).toLowerCase() === 'excel' ? 'excel' : 'pdf';
+
+  let sheetName;
+  let options = {};
+
+  if (sumber === 'data') {
+    sheetName = webAppSheetFor_(normalizeText_(payload.jenis).toLowerCase(), config);
+    options.cari = normalizeText_(payload.cari);
+  } else if (sumber === 'rekap' || sumber === 'dashboard') {
+    sheetName = normalizeText_(config.sheet_rekap_barang);
+    if (sheetName === '') throw new Error('Sheet rekap belum diatur di Config.');
+  } else {
+    throw new Error('Sumber export "' + payload.sumber + '" tidak dikenal.');
+  }
+
+  const hasil = format === 'excel'
+    ? exportToExcel(sheetName, options)
+    : exportToPDF(sheetName, options);
+
+  Logger.log('runWebExport(): %s %s -> %s', format, sheetName, hasil.name);
+  return {
+    format: format,
+    sheet: sheetName,
+    url: hasil.url,
+    name: hasil.name,
+    rowCount: hasil.rowCount,
+    message: hasil.message
+  };
+}
+
+/**
+ * What the next undo and redo would act on, WITHOUT doing it.
+ *
+ * The buttons act on the last action in the whole system, which may well
+ * belong to someone else — so the page shows this first and lets the person
+ * back out. That is the whole reason this function exists separately from
+ * runUndo().
+ */
+function getUndoRedoPreview(request) {
+  assertWebAppAccess_((request || {}).kodeAkses);
+
+  const entries = readActionLogEntries_(getActionLogSheet_());
+  const aktif = entries.filter(function (e) { return e.status === LOG_STATUS_ACTIVE; });
+  const undone = entries.filter(function (e) { return e.status === LOG_STATUS_UNDONE; });
+
+  return {
+    undo: ringkasEntri_(aktif[aktif.length - 1]),
+    redo: ringkasEntri_(undone[undone.length - 1])
+  };
+}
+
+/** One log entry as the confirmation dialog needs it. */
+function ringkasEntri_(entry) {
+  if (!entry) return null;
+
+  const timeZone = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  return {
+    aksi: entry.actionType,
+    aksiLabel: AKSI_LABEL[entry.actionType] || entry.actionType,
+    sheet: entry.sheetName,
+    baris: entry.rowIndex,
+    oleh: entry.inputBy,
+    waktu: entry.waktu ? Utilities.formatDate(entry.waktu, timeZone, 'dd-MM-yyyy HH:mm') : ''
+  };
+}
+
+const AKSI_LABEL = {
+  APPEND: 'Tambah 1 baris',
+  BATCH_INSERT: 'Tambah beberapa baris (1 invoice)',
+  DELETE: 'Hapus baris',
+  EDIT_MANUAL: 'Edit manual di spreadsheet',
+  EDIT_FORM: 'Edit lewat form'
+};
+
+/** Undo the last action. Returns what was reverted, for the toast. */
+function runUndo(request) {
+  assertWebAppAccess_((request || {}).kodeAkses);
+
+  const sebelum = getUndoRedoPreview({ kodeAkses: (request || {}).kodeAkses }).undo;
+  if (!sebelum) throw new Error('Tidak ada aksi yang bisa dibatalkan.');
+
+  if (!undoLastAction()) {
+    throw new Error(
+      'Undo gagal. Biasanya karena barisnya sudah berubah sejak aksi itu dicatat — ' +
+      'cek log eksekusi di editor Apps Script untuk alasan persisnya.'
+    );
+  }
+  return { dibatalkan: sebelum, message: sebelum.aksiLabel + ' di "' + sebelum.sheet + '" dibatalkan.' };
+}
+
+/** Redo the last undone action. */
+function runRedo(request) {
+  assertWebAppAccess_((request || {}).kodeAkses);
+
+  const sebelum = getUndoRedoPreview({ kodeAkses: (request || {}).kodeAkses }).redo;
+  if (!sebelum) throw new Error('Tidak ada aksi yang bisa diulang.');
+
+  if (!redoAction()) {
+    throw new Error(
+      'Redo gagal. Biasanya karena barisnya sudah berubah sejak di-undo — ' +
+      'cek log eksekusi di editor Apps Script untuk alasan persisnya.'
+    );
+  }
+  return { diulang: sebelum, message: sebelum.aksiLabel + ' di "' + sebelum.sheet + '" dijalankan ulang.' };
+}

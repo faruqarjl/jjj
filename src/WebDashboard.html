@@ -24,6 +24,11 @@
             <p class="sub" id="sub">Memuat…</p>
           </div>
           <div class="grow"></div>
+          <button class="btn ghost sm" onclick="konfirmasiUndoRedo('undo')"
+                  title="Membatalkan aksi TERAKHIR di seluruh sistem — bisa jadi bukan aksi Anda">↶ Undo</button>
+          <button class="btn ghost sm" onclick="konfirmasiUndoRedo('redo')"
+                  title="Menjalankan ulang aksi yang barusan dibatalkan, siapa pun yang membatalkannya">↷ Redo</button>
+          <button class="btn ghost sm" onclick="menuExport(this, 'dashboard', filterExportDashboard)">⇩ Export</button>
           <button class="btn ghost sm" id="refreshBtn" onclick="load(true)">
             <span id="refreshIcon">↻</span><span>Refresh</span>
           </button>
@@ -530,6 +535,19 @@
 
 
       function muatUlangHalaman() { load(true); }
+
+      /**
+       * Dashboard meringkas REKAP BARANG, dan tidak ada sheet "ringkasan"
+       * tersendiri untuk di-export. Yang diekspor adalah sumbernya, supaya
+       * tidak ada salinan angka kedua yang bisa berbeda.
+       */
+      function filterExportDashboard() {
+        return {
+          keterangan: DATA
+            ? 'Isi ' + DATA.rekapSheet + ' — sumber angka di halaman ini'
+            : 'Isi sheet rekap — sumber angka di halaman ini'
+        };
+      }
 
       function startAutoRefresh() {
         if (timer) clearInterval(timer);

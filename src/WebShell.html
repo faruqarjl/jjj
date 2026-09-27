@@ -199,3 +199,190 @@
         } }]);
   }
 </script>
+<script>
+  /* =================================================================
+   * Fase 8E: helper bersama untuk export, undo/redo, geser tabel, dan
+   * double-tap pada baris.
+   * ================================================================= */
+
+  /* ---------------- export ---------------- */
+
+  function menuExport(tombol, sumber, ambilFilter) {
+    var filter = (ambilFilter ? ambilFilter() : {}) || {};
+    bukaModal('Export Data', filter.keterangan || '',
+      '<p>Pilih formatnya. File disimpan ke folder <b>Export</b> di Drive, ' +
+      'dan link-nya langsung muncul di sini.</p>' +
+      '<p class="hint" id="exStatus"></p>',
+      [
+        { label: 'Batal', aksi: function () { tutupModal(); } },
+        { label: 'PDF', aksi: function (b) { jalankanExport(b, sumber, filter, 'pdf'); } },
+        { label: 'Excel', gaya: '', aksi: function (b) { jalankanExport(b, sumber, filter, 'excel'); } }
+      ]);
+  }
+
+  function jalankanExport(tombol, sumber, filter, format) {
+    busy(tombol, true);
+    var status = el('exStatus');
+    if (status) status.textContent = 'Menyiapkan file… ini bisa beberapa detik.';
+
+    panggil('runWebExport',
+      { sumber: sumber, jenis: filter.jenis, cari: filter.cari, format: format },
+      function (hasil) {
+        busy(tombol, false, format === 'pdf' ? 'PDF' : 'Excel');
+        if (status) {
+          status.innerHTML = '<b>' + esc(hasil.name) + '</b> siap (' +
+            num(hasil.rowCount) + ' baris). ' +
+            '<a href="' + esc(hasil.url) + '" target="_blank" rel="noopener">Buka file</a>';
+        }
+        toastOk('Export selesai', hasil.message);
+      },
+      function (pesan) {
+        busy(tombol, false, format === 'pdf' ? 'PDF' : 'Excel');
+        if (status) status.textContent = '';
+        toastErr('Export gagal', pesan);
+      });
+  }
+
+  /* ---------------- undo / redo ---------------- */
+
+  /**
+   * Menampilkan APA yang akan dibatalkan sebelum menjalankannya. Tombol ini
+   * mengenai aksi terakhir di SELURUH sistem — bisa jadi punya orang lain —
+   * jadi konfirmasinya bukan basa-basi.
+   */
+  function konfirmasiUndoRedo(jenis) {
+    panggil('getUndoRedoPreview', {},
+      function (pratinjau) {
+        var entri = jenis === 'undo' ? pratinjau.undo : pratinjau.redo;
+        var judul = jenis === 'undo' ? 'Batalkan aksi terakhir?' : 'Jalankan ulang aksi terakhir?';
+
+        if (!entri) {
+          toastErr(jenis === 'undo' ? 'Tidak ada yang bisa dibatalkan'
+                                    : 'Tidak ada yang bisa diulang');
+          return;
+        }
+
+        var baris = [
+          ['Aksi', entri.aksiLabel],
+          ['Sheet', entri.sheet],
+          ['Baris', entri.baris],
+          ['Waktu', entri.waktu || '—'],
+          ['Oleh', entri.oleh || '(dari menu spreadsheet)']
+        ].map(function (r) {
+          return '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft)">' +
+            '<span style="min-width:74px;color:var(--muted);font-size:13px">' + r[0] + '</span>' +
+            '<b style="font-size:14px">' + esc(r[1]) + '</b></div>';
+        }).join('');
+
+        bukaModal(judul, 'Periksa dulu — ini mungkin bukan aksi Anda.',
+          baris +
+          '<p class="hint"><b>Perhatian:</b> tombol ini mengenai aksi TERAKHIR ' +
+          'di seluruh sistem, siapa pun yang melakukannya. Kalau rinciannya ' +
+          'tidak sesuai dengan yang Anda maksud, batalkan saja.</p>',
+          [
+            { label: 'Batal', aksi: function () { tutupModal(); } },
+            { label: jenis === 'undo' ? 'Ya, batalkan' : 'Ya, jalankan ulang',
+              gaya: jenis === 'undo' ? 'danger' : '',
+              aksi: function (b) { jalankanUndoRedo(b, jenis); } }
+          ]);
+      });
+  }
+
+  function jalankanUndoRedo(tombol, jenis) {
+    busy(tombol, true);
+    panggil(jenis === 'undo' ? 'runUndo' : 'runRedo', {},
+      function (hasil) {
+        tutupModal();
+        toastOk(jenis === 'undo' ? 'Dibatalkan' : 'Dijalankan ulang', hasil.message);
+        if (typeof muatUlangHalaman === 'function') muatUlangHalaman();
+      },
+      function (pesan) {
+        busy(tombol, false, jenis === 'undo' ? 'Ya, batalkan' : 'Ya, jalankan ulang');
+        toastErr(jenis === 'undo' ? 'Undo gagal' : 'Redo gagal', pesan);
+      });
+  }
+
+  /* ---------------- geser tabel kiri/kanan ---------------- */
+
+  /**
+   * Memasang dua tombol panah yang menggeser tabel secara horizontal.
+   * Tombolnya hanya muncul kalau tabelnya memang lebih lebar dari layar —
+   * kalau muat, dua tombol mati di pojok cuma jadi sampah visual.
+   */
+  function pasangGeser(wrapId, scrollId) {
+    var wrap = el(wrapId), box = el(scrollId);
+    if (!wrap || !box) return;
+
+    var lama = wrap.querySelector('.scrollBtns');
+    if (lama) lama.parentNode.removeChild(lama);
+
+    if (box.scrollWidth <= box.clientWidth + 4) return;
+
+    var bar = document.createElement('div');
+    bar.className = 'scrollBtns';
+    bar.innerHTML =
+      '<button type="button" aria-label="Geser tabel ke kiri">&#8592;</button>' +
+      '<button type="button" aria-label="Geser tabel ke kanan">&#8594;</button>';
+    wrap.appendChild(bar);
+
+    var kiri = bar.children[0], kanan = bar.children[1];
+    function geser(arah) {
+      box.scrollBy({ left: arah * Math.round(box.clientWidth * 0.75), behavior: 'smooth' });
+    }
+    kiri.onclick = function () { geser(-1); };
+    kanan.onclick = function () { geser(1); };
+
+    function perbarui() {
+      kiri.disabled = box.scrollLeft <= 2;
+      kanan.disabled = box.scrollLeft + box.clientWidth >= box.scrollWidth - 2;
+    }
+    box.addEventListener('scroll', perbarui);
+    window.addEventListener('resize', perbarui);
+    perbarui();
+  }
+
+  /* ---------------- double-click / double-tap ---------------- */
+
+  /**
+   * Memasang aksi double-click (desktop) dan double-tap (HP) pada baris.
+   *
+   * Double-tap di HP dibedakan dari scroll cepat: dua ketukan dihitung hanya
+   * kalau jaraknya < 400ms DAN jarinya hampir tidak bergerak (< 14px). Tanpa
+   * syarat kedua, menggulir cepat di tabel akan terus memunculkan dialog.
+   */
+  function pasangDoubleTap(scrollId, onBaris) {
+    var box = el(scrollId);
+    if (!box) return;
+
+    box.addEventListener('dblclick', function (e) {
+      var tr = e.target.closest('tr[data-baris]');
+      if (tr) onBaris(tr, e);
+    });
+
+    var tapTerakhir = 0, xTerakhir = 0, yTerakhir = 0, barisTerakhir = null;
+
+    box.addEventListener('touchend', function (e) {
+      var sentuh = e.changedTouches && e.changedTouches[0];
+      if (!sentuh) return;
+
+      var tr = e.target.closest ? e.target.closest('tr[data-baris]') : null;
+      if (!tr) { tapTerakhir = 0; return; }
+
+      var sekarang = Date.now();
+      var bergerak = Math.abs(sentuh.clientX - xTerakhir) + Math.abs(sentuh.clientY - yTerakhir);
+
+      if (barisTerakhir === tr && sekarang - tapTerakhir < 400 && bergerak < 14) {
+        e.preventDefault();          // jangan sampai jadi klik ganda sintetis
+        tapTerakhir = 0;
+        barisTerakhir = null;
+        onBaris(tr, e);
+        return;
+      }
+
+      tapTerakhir = sekarang;
+      xTerakhir = sentuh.clientX;
+      yTerakhir = sentuh.clientY;
+      barisTerakhir = tr;
+    }, { passive: false });
+  }
+</script>
